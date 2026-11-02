@@ -8,7 +8,7 @@
 <link rel="icon" href="static/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="static/style.css">
 <script defer src="static/app.js"></script>
-</head>
+<script defer src="static/scene-review.js"></script></head>
 <body>
 <header class="bar">
   <div class="brand">
@@ -17,11 +17,11 @@
   </div>
   <div class="bar-right">
     <div class="clock"><span id="feed" class="pill">연결 확인 중</span><span id="age" class="mono">—</span></div>
-    <span id="access" class="pill dim">권한 확인 중</span>
+    <button id="theme-toggle" class="btn" type="button" aria-pressed="false">다크 모드</button><span id="access" class="pill dim">권한 확인 중</span>
   </div>
 </header>
 
-<div id="banners"></div>
+<div class="design-note">운영 통합 후보 · 최종 승인 전 · 기존 데이터 및 판정 유지</div><div id="banners"></div>
 
 <main>
   <section class="headline">
@@ -43,7 +43,7 @@
   <nav class="tabs" role="tablist" aria-label="관제 메뉴">
     <button role="tab" data-tab="overview" aria-selected="true">관제 개요</button>
     <button role="tab" data-tab="review" aria-selected="false">검증·승인</button>
-    <button role="tab" data-tab="preview" aria-selected="false">미리보기</button>
+    <button role="tab" data-tab="preview" aria-selected="false">영상 검수 · A–D</button>
     <button role="tab" data-tab="reports" aria-selected="false">보고서</button>
     <button role="tab" data-tab="lab" aria-selected="false">실험·재현</button>
     <button role="tab" data-tab="health" aria-selected="false">데이터 상태</button>
@@ -68,7 +68,7 @@
   </section>
 
   <section id="tab-preview" class="tab" role="tabpanel" hidden>
-    <article class="panel"><div class="panel-head"><h2>시뮬레이션 미리보기</h2><span class="muted">해시가 맞는 파일만 재생 · 출처 표시</span></div><div id="media" class="media"></div></article>
+    <div id="scene-review"></div><article class="panel"><div class="panel-head"><h2>기존 실험 미리보기 · 별도 자료</h2><span class="muted">해시가 맞는 파일만 재생 · 출처 표시</span></div><div id="media" class="media"></div></article>
   </section>
 
   <section id="tab-reports" class="tab" role="tabpanel" hidden>

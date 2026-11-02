@@ -27,6 +27,8 @@ const SECURITY = {
   'Cross-Origin-Resource-Policy': 'same-origin',
 };
 const ASSETS = {
+  '/static/scene-review.js': ['scene-review.js', 'text/javascript; charset=utf-8'],
+  '/static/scene-review.json': ['scene-review.json', 'application/json; charset=utf-8'],
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/index.html': ['index.html', 'text/html; charset=utf-8'],
   '/static/app.js': ['app.js', 'text/javascript; charset=utf-8'],
