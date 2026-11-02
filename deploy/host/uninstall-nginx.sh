@@ -6,7 +6,9 @@ SITE=/etc/nginx/sites-enabled/phyloserver
 SNIP=/etc/nginx/snippets/Houdini-subpath.conf
 STAMP=$(date +%Y%m%d_%H%M%S)
 [ "$(id -u)" = 0 ] || { echo "root 로 실행: sudo bash $0" >&2; exit 1; }
-cp -p "$SITE" "$SITE.bak-$STAMP-houdini-uninstall"
-grep -vF -e '    include snippets/Houdini-subpath.conf;' -e '# Houdini Production Control (/Houdini/).' "$SITE.bak-$STAMP-houdini-uninstall" > "$SITE"
-[ -f "$SNIP" ] && mv "$SNIP" "$SNIP.removed-$STAMP"
-if nginx -t; then systemctl reload nginx; echo "걷어 냄 — 백업: $SITE.bak-$STAMP-houdini-uninstall"; else cp -p "$SITE.bak-$STAMP-houdini-uninstall" "$SITE"; [ -f "$SNIP.removed-$STAMP" ] && mv "$SNIP.removed-$STAMP" "$SNIP"; echo "nginx -t 실패 — 원래대로 둠" >&2; exit 1; fi
+BAK="/etc/nginx/sites-available/phyloserver.bak-$STAMP-houdini-uninstall"   # never in sites-enabled
+RM="/etc/nginx/sites-available/Houdini-subpath.conf.removed-$STAMP"            # never in snippets (not loaded anyway)
+cp -p "$SITE" "$BAK"
+grep -vF -e '    include snippets/Houdini-subpath.conf;' -e '# Houdini Production Control (/Houdini/).' "$BAK" > "$SITE"
+[ -f "$SNIP" ] && mv "$SNIP" "$RM"
+if nginx -t; then systemctl reload nginx; echo "걷어 냄 — 백업: $BAK"; else cp -p "$BAK" "$SITE"; [ -f "$RM" ] && mv "$RM" "$SNIP"; echo "nginx -t 실패 — 원래대로 둠" >&2; exit 1; fi
