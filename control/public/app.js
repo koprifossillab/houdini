@@ -16,7 +16,7 @@ function h(tag, attrs, ...kids) {
 const STALE_S = 180;
 const TEAM_ORDER = ['houdini', 'verify', 'blender', 'work'];
 const STATE = {
-  running: ['실행 근거 있음', 'good'], waiting: ['대기', 'info'], done: ['완료 문서 근거', 'info'], error: ['오류 근거', 'bad'],
+  running: ['관련 프로세스 감지', 'info'], waiting: ['대기', 'info'], done: ['완료 문서 근거', 'info'], error: ['오류 근거', 'bad'],
   unknown: ['현재 확인 불가', 'warn'], outside: ['서버 밖 · 관측 불가', 'locked'],
 };
 const FEED = { live: ['수집 자료 연결', 'live'], stale: ['갱신 지연', 'warn'], missing: ['데이터 없음', 'bad'], error: ['데이터 오류', 'bad'], offline: ['서버 연결 실패', 'bad'] };
@@ -68,12 +68,19 @@ function renderClock() {
   $('age').textContent = c?.generated_at ? `수집 ${kstTime(c.generated_at)} KST · ${ago(age)}` : '수집 시각 없음';
 }
 
+// F1: never "a computation is running" — the physics line is always unverified; process activity and
+// the Blender queue are shown as what they are, and as unknown when the data is not current.
 function renderCompute(o) {
   const c = o.compute;
-  const box = $('compute');
-  box.className = `compute ${c.state}`;
-  $('compute-label').textContent = c.label;
-  $('compute-basis').textContent = `${c.basis} · 관측 ${kst(c.observed_at)}`;
+  $('compute').className = 'compute unknown';
+  $('compute-label').textContent = c.physics.label;
+  const act = c.activity, q = c.blender_queue;
+  const teamName = { houdini: 'Houdini', verify: '검증' };
+  $('compute-basis').replaceChildren(
+    h('span', { text: c.physics.basis }),
+    h('span', { class: 'line' }, h('b', { text: '관련 프로세스 ' }), `${act.label}${act.teams?.length ? ` (${act.teams.map(k => teamName[k] || k).join('·')})` : ''} — ${act.basis}`),
+    h('span', { class: 'line' }, h('b', { text: 'Blender 큐 ' }), q.state === 'missing' ? '기록 없음' : `대기 ${q.inbox ?? '—'} · 실행 기록 ${q.running ?? '확인 불가'} · 실패 ${q.failed ?? '—'}${q.state === 'unknown' ? ' (지금 값 아님)' : ''} — 큐 폴더 기준`),
+    h('span', { class: 'line', text: `관측 ${kst(c.observed_at)}` }));
 }
 
 function renderStages(r) {
@@ -96,7 +103,7 @@ function progressBar(p) {
   const seg = (cls, v) => { const i = h('i', { class: cls }); i.style.width = `${Math.max(0, Math.min(100, ((v || 0) / p.total) * 100))}%`; return i; };
   return h('div', {},
     h('div', { class: 'progress', role: 'img', 'aria-label': `결과 ${p.done ?? '—'}/${p.total}` }, seg('d', p.done), seg('r', p.running), seg('f', p.failed)),
-    h('div', { class: 'counts' }, h('span', { text: `결과 ${p.done ?? '—'}/${p.total}` }), h('span', { text: `실행 ${p.running ?? '확인 불가'}` }), h('span', { text: `실패 ${p.failed ?? '—'}` }), p.waiting !== null && p.waiting !== undefined ? h('span', { text: `대기 ${p.waiting}` }) : null));
+    h('div', { class: 'counts' }, h('span', { text: `결과 ${p.done ?? '—'}/${p.total}` }), h('span', { text: `진행 표시 ${p.running ?? '확인 불가'}`, title: '수집기가 이 조건 이름이 든 프로세스를 본 수 — 계산 여부는 미확인' }), h('span', { text: `실패 ${p.failed ?? '—'}` }), p.waiting !== null && p.waiting !== undefined ? h('span', { text: `대기 ${p.waiting}` }) : null));
 }
 
 function renderTeams(o) {
@@ -146,13 +153,12 @@ function renderSources(o) {
     h('tbody', {}, rows.map(({ s, label, tone }) => h('tr', {}, h('td', { text: s.label }), h('td', {}, prov(s.provenance)), h('td', {}, tag(label, tone)), h('td', { text: s.detail || '' }), h('td', { class: 'mono', text: s.observed_at ? `${kst(s.observed_at)}${s.age_s !== null && s.age_s !== undefined ? ` (${ago(s.age_s)})` : ''}` : '—' })))));
 }
 
+// F4: the whole page needs credentials, so this only appears when a session expires or is refused.
 function lockedBox(what) {
-  const msg = session.configured ? `${what}은(는) 열람 권한이 필요합니다.` : `${what} 열람 계정이 아직 설정되지 않았습니다 — 운영자 설정 전까지 잠겨 있습니다.`;
-  return h('div', { class: 'locked-box' }, h('span', { text: msg }), session.configured ? h('a', { class: 'btn primary', href: 'login', text: '로그인' }) : null);
+  return h('div', { class: 'locked-box' }, h('span', { text: `${what}: 인증이 만료되었거나 거부되었습니다 — 페이지를 다시 열어 주세요.` }));
 }
 
 async function renderMedia() {
-  if (!session.authorized) return $('media').replaceChildren(lockedBox('시뮬레이션 미리보기'));
   try {
     const d = await getJson('api/media');
     if (!d.items.length) return $('media').replaceChildren(h('div', { class: 'empty', text: d.state === 'ok' ? '등록된 미리보기가 없습니다.' : '미리보기 목록이 설정되지 않았습니다.' }));
@@ -184,8 +190,7 @@ async function renderReports() {
     if (!d.items.length) return $('reports').replaceChildren(h('div', { class: 'empty', text: '보고서 목록이 없습니다.' }));
     $('reports').replaceChildren(...d.items.map(r => h('div', { class: 'report-row' },
       h('div', {}, h('h3', { text: r.title }), h('small', { text: `${team[r.team] || r.team}${r.stage ? ` · ${r.stage}` : ''} · ${kst(r.mtime)} · ${REPORT_SRC[r.source]}${r.redacted ? ' (공개용 가림 적용)' : ''}` })),
-      h('button', { class: 'btn', disabled: r.source === 'none' || !session.authorized ? true : null, title: r.source === 'none' ? '수집기 사본도 저장소 사본도 없음' : !session.authorized ? '열람 권한 필요' : null, onclick: () => openReport(r), text: r.source === 'none' ? '사본 없음' : session.authorized ? '열기' : '권한 필요' }))));
-    if (!session.authorized) $('reports').prepend(lockedBox('보고서 본문'));
+      h('button', { class: 'btn', disabled: r.source === 'none' ? true : null, title: r.source === 'none' ? '수집기 사본도 저장소 사본도 없음' : null, onclick: () => openReport(r), text: r.source === 'none' ? '사본 없음' : '열기' }))));
   } catch {
     $('reports').replaceChildren(h('div', { class: 'empty', text: '보고서 목록을 불러오지 못했습니다.' }));
   }
@@ -215,12 +220,31 @@ async function renderLab() {
     }
     // a fresh node per row — reusing one node would move it to the last row
     const V = { kept: () => tag('보존', 'good'), superseded: () => tag('대체됨', 'locked'), invalid: () => tag('무효 · 해석 금지', 'bad') };
+    const CS = { match: ['보존 코드와 일치', 'good'], partial: ['일부 해시 없음', 'warn'], mismatch: ['불일치 · 재현성 미확보', 'bad'], unverifiable: ['검증 불가', 'warn'], none: ['코드 해시 없음', 'locked'] };
+    const codeCell = e => {
+      const [label, tone] = CS[e.code_status] || ['검증 불가', 'warn'];
+      return h('td', { title: e.reproducibility_note },
+        tag(label, tone),
+        h('div', { class: 'mono small', text: `참조 일치 ${e.code_refs.match} · 불일치 ${e.code_refs.mismatch}${e.code_refs.unverifiable ? ` · 검증 불가 ${e.code_refs.unverifiable}` : ''}${e.code_json.without_hash ? ` · 해시 없는 결과 ${e.code_json.without_hash}` : ''}` }),
+        ...e.code_mismatches.slice(0, 3).map(m => h('div', { class: 'mono small bad-text', text: `${m.file || '(이름 없음)'} 기록 ${m.recorded}… ≠ 보존 ${m.preserved.map(x => `${x}…`).join(', ') || '없음'}` })));
+    };
+    const cc = d.code_check;
+    $('code-check').replaceChildren(
+      h('div', { class: 'kv' },
+        h('span', { text: '해시 참조 일치' }), h('span', { text: String(cc.refs_match) }),
+        h('span', { text: '해시 참조 불일치' }), h('span', { class: cc.refs_mismatch ? 'bad-text' : '', text: String(cc.refs_mismatch) }),
+        h('span', { text: '불일치가 있는 결과 JSON' }), h('span', { text: String(cc.json_with_mismatch) }),
+        h('span', { text: '코드 해시 없는 결과 JSON' }), h('span', { text: String(cc.json_without_hash) }),
+        h('span', { text: '검증 불가 참조 · 읽기 실패' }), h('span', { text: `${cc.refs_unverifiable} · ${cc.json_unreadable}` }),
+        h('span', { text: 'NaN·Infinity 값(읽기만 null 처리)' }), h('span', { text: String(cc.nonstandard_values) })),
+      cc.experiments_not_secured.length ? h('p', { class: 'bad-text', text: `재현성 미확보: ${cc.experiments_not_secured.map(x => x.split('/').pop()).join(', ')}` }) : null,
+      h('p', { class: 'muted', text: cc.note }));
     $('experiments').replaceChildren(
-      h('thead', {}, h('tr', {}, ['단계', '종류', '실험', '시각(KST)', '결과', '코드 sha256', '상태'].map(t => h('th', { text: t })))),
+      h('thead', {}, h('tr', {}, ['단계', '종류', '실험', '시각(KST)', '결과', '코드 해시 대조', '상태'].map(t => h('th', { text: t })))),
       h('tbody', {}, d.experiments.map(e => h('tr', { class: e.validity },
         h('td', { class: 'mono', text: e.stage || '—' }), h('td', { text: e.kind }), h('td', { class: 'mono', text: e.id.split('/').pop() }),
         h('td', { class: 'mono', text: e.time_kst || '—', title: e.time_note }), h('td', { class: 'mono', text: `${e.results}건${e.untracked_files ? ` · 원본만 ${e.untracked_files}` : ''}` }),
-        h('td', { class: 'mono', text: e.code_sha256.join(' ') || '기록 없음' }), h('td', { title: e.validity_note || null }, V[e.validity] ? V[e.validity]() : e.validity)))));
+        codeCell(e), h('td', { title: e.validity_note || null }, V[e.validity] ? V[e.validity]() : e.validity)))));
     const env = d.environment;
     $('env').replaceChildren(env ? h('div', { class: 'kv' }, h('span', { text: 'Python' }), h('span', { text: env.python || '기록 없음' }), ...env.packages.flatMap(p => [h('span', { text: p.name }), h('span', { text: p.version })])) : h('div', { class: 'empty', text: '고정 환경 파일 없음' }),
       h('p', { class: 'muted', text: `추적 ${d.totals.tracked}개 · 원본 목록 ${d.totals.inventory ?? '—'}개(큰 파일 ${d.totals.untracked}개는 원본에만)${d.revision ? ` · 저장소 판 ${d.revision}` : ''}` }));
@@ -244,7 +268,8 @@ async function refresh() {
   } catch {
     banners(overview, true);
     if (overview) {
-      overview.compute = { state: 'unknown', label: '확인 불가', basis: '서버 연결 실패', observed_at: overview.collector.generated_at };
+      const unknown = { state: 'unknown', label: '확인 불가', basis: '서버 연결 실패 — 이전 값은 현재 상태가 아님' };
+      overview.compute = { ...overview.compute, activity: unknown, blender_queue: { ...overview.compute.blender_queue, state: 'unknown', running: null } };
       renderCompute(overview);
     }
   }
@@ -253,8 +278,8 @@ async function refresh() {
 
 async function init() {
   try { session = await getJson('api/session'); } catch { /* keep defaults */ }
-  $('access').textContent = session.authorized ? '열람 권한 있음' : session.configured ? '열람 권한 없음 · 개요만' : '열람 계정 미설정 · 개요만';
-  $('access').className = `pill ${session.authorized ? 'ok' : 'dim'}`;
+  $('access').textContent = session.user ? `인증됨 · ${session.user}` : '인증 상태 확인 불가';
+  $('access').className = `pill ${session.user ? 'ok' : 'dim'}`;
   $('version').textContent = `v${session.version || '?'}${session.demo ? ' · 예시 모드' : ''}`;
   document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => {
     document.querySelectorAll('[data-tab]').forEach(x => x.setAttribute('aria-selected', String(x === b)));

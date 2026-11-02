@@ -6,6 +6,22 @@ import path from 'node:path';
 import { clean, count, iso, hex, readBounded, readJson } from './sanitize.mjs';
 
 export const STALE_AFTER_S = 180;
+
+// F1 (2026-11-02): the collector counts every process whose working directory or command line touches
+// a team folder — shells, editors and inspection commands included. Its "running" therefore means
+// "related process seen", never "physics computation in progress". Its evidence phrases that claim
+// computation are reworded here (the collector itself is not changed).
+const REWORD = [
+  [/^계산 프로세스 (\d+)개 실행 중$/, '작업 폴더 관련 프로세스 $1개 감지 — 셸·편집기 포함 가능, 계산 여부 미확인'],
+  [/^남은 작업이 있는데 실행 중인 프로세스가 없음$/, '남은 작업이 있고 관련 프로세스는 보이지 않음'],
+  [/^계산 프로세스 없음 · /, '관련 프로세스 없음 · '],
+  [/^검증 프로세스 (\d+)개 실행 중$/, '검증 폴더 관련 프로세스 $1개 감지 — 계산 여부 미확인'],
+  [/^실행 중인 검증 프로세스 없음/, '검증 폴더 관련 프로세스 없음'],
+  [/^서버 Blender 프로세스 (\d+)개$/, '서버 Blender 관련 프로세스 $1개 감지 — 렌더 여부 미확인'],
+  [/^PC 워커가 작업 중\(큐 기준\)$/, 'PC 워커 큐에 실행 기록 있음 — 큐 폴더 기준, 렌더 진행 미확인'],
+];
+export const reword = e => REWORD.reduce((t, [re, to]) => t.replace(re, to), e);
+const QUEUE = /PC 워커 큐 — 대기 (\d+) · 실행 (\d+) · 실패 (\d+)/;
 const STATES = new Set(['running', 'waiting', 'done', 'error', 'unknown', 'outside']);
 export const TEAM_KEYS = ['houdini', 'verify', 'blender', 'work'];
 
@@ -51,7 +67,11 @@ export async function collectorSnapshot(dir, now = Date.now(), example = null) {
         task: clean(t.task),
         next: clean(t.next),
         stage: clean(t.stage, 20) || null,
-        evidence: Array.isArray(t.evidence) ? t.evidence.slice(0, 8).map(x => clean(x, 200)) : [],
+        evidence: Array.isArray(t.evidence) ? t.evidence.slice(0, 8).map(x => reword(clean(x, 200))) : [],
+        queue: t.key === 'blender' && Array.isArray(t.evidence) ? (() => {
+          const m = t.evidence.map(x => QUEUE.exec(String(x))).find(Boolean);
+          return m ? { inbox: +m[1], running: stale ? null : +m[2], failed: +m[3] } : null;
+        })() : undefined,
         last_activity: iso(t.last_activity),
         progress: p,
         report: reportRef(t.report),

@@ -16,13 +16,33 @@ export function setRedactTerms(list) {
 }
 setRedactTerms((process.env.HPC_REDACT_TERMS || '').split(','));
 
+// Path tokens: anything rooted in the machine (home, NAS mounts, system roots, drives, UNC) is always
+// masked. A path is kept only when its first segment is a project name that already appears in the
+// public production repository (tool folders, run/diagnosis folders, shared report folder names).
+// Everything else is masked — unknown means private (2026-11-02 verification: the earlier rule masked
+// 48 harmless project-relative names in real reports and was hard to read).
+const SYSTEM_ROOT = /^(?:home|nfs|srv|mnt|media|data\d*|volume\d*|tmp|opt|var|etc|usr|root|run|proc|Users|Volumes)$/i;
+const PROJECT_SEG = /^(?:tools|out|scripts|figs|runs|n3|tc\d\d[\w.-]*|TC\d\d[\w.-]*|batch_[\w.-]+|smoke_[\w.-]+|unit_[\w.-]+|settle_[\w.-]+|pull_[\w.-]+|kinematics_[\w.-]+|diag_[\w.-]+|cf_[\w.-]+|thermal_collapse[\w.-]*|invalid_v0[\w.-]*|\{[\w,.-]*\}|\*)$/;
+const PATH_TOKEN = /(?:[A-Z]:[\\/][^\s<>"'`]*|\\\\[^\s<>"'`]+|~\/[^\s<>"'`]*|\/(?:[\w.{},*-]+\/)+[^\s<>"'`]*|\b[\w.-]+(?:\/[\w.{},*-]+)+\/?)/gi;
+
+function pathToken(tok) {
+  if (/^(?:[A-Z]:|\\\\|~)/i.test(tok)) return '[경로 숨김]';
+  const first = tok.replace(/^\//, '').split('/')[0];
+  if (tok.startsWith('/') && SYSTEM_ROOT.test(first)) return '[경로 숨김]';
+  if (PROJECT_SEG.test(first)) return tok;
+  if (tok.startsWith('/')) return '[경로 숨김]';
+  // relative token outside the project list: treat as a path only when it looks like one
+  // (file extension or trailing slash) — "V2/V3/V5", "m/s", "1/2" stay as ordinary text
+  return /\.(?:md|json|py|log|png|jpe?g|mp4|txt|npz|npy|csv|sh|bat|blend|hip\w*|abc|bgeo[\w.]*|vdb)$/i.test(tok) || tok.endsWith('/') ? '[경로 숨김]' : tok;
+}
+
 export function clean(value, max = 350) {
   if (typeof value !== 'string') return '';
   let v = value;
   if (TERMS) v = v.replace(TERMS, '[내부 정보 숨김]');
   return v
     .replace(/(?:https?:\/\/[^\s<>"']+|\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?|\b[\w.-]+@[\w.-]+\b|\b(?!(?:ob|pre|de)server)[a-z][a-z0-9]+-?server[\w.-]*\b)/gi, '[내부 정보 숨김]')
-    .replace(/(?:[A-Z]:[\\/][^\s<>"'`]*|\\\\[^\s<>"'`]+|~\/[^\s<>"'`]*|\/(?:[\w.-]+\/)+[^\s<>"'`]*|\b[\w.-]+\/[\w.-]+\.(?:md|json|py|log|png|mp4)\b)/gi, '[경로 숨김]')
+    .replace(PATH_TOKEN, pathToken)
     .replace(/[\w.-]+(?=\[경로 숨김\])/g, '')
     .replace(/\b(?:sk-[\w-]{8,}|gh[pousr]_[\w]{8,}|(?:token|password|secret|api[_ -]?key)\s*[:=]\s*\S+)/gi, '[비밀값 숨김]')
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '')

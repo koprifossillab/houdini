@@ -174,3 +174,9 @@ footer { max-width: 1480px; margin: 0 auto; padding: 14px 32px 28px; display: fl
   .clock .mono { display: none; }
 }
 .empty a { color: var(--blue); }
+
+.compute-lines { display: grid; gap: 3px; font-size: 11.5px; color: var(--muted); max-width: 560px; }
+.compute-lines .line b { color: #c9d3e5; font-weight: 600; }
+.small { font-size: 10.5px; color: var(--muted); margin-top: 3px; }
+.bad-text { color: #ffb4ab; }
+.compute-lines .line b { font-size: 11.5px; }

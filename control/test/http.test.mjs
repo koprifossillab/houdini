@@ -48,7 +48,7 @@ test('works under /Houdini/ and unprefixed; assets are relative', async t => {
   assert.ok(!/innerHTML|insertAdjacentHTML|document\.write|eval\(/.test(js), 'no HTML injection sinks');
 });
 
-test('auth: deny by default; Basic credentials unlock reports and media; wrong password refused', async t => {
+test('auth: deny by default; Basic credentials unlock everything; wrong password refused', async t => {
   const dir = await collectorFixture(t);
   await fs.mkdir(path.join(dir, 'reports'));
   await fs.writeFile(path.join(dir, 'reports', '0123456789abcdef.md'), '본문');
@@ -57,9 +57,9 @@ test('auth: deny by default; Basic credentials unlock reports and media; wrong p
   assert.equal(r0.status, 401);
   assert.match(r0.headers.get('www-authenticate'), /^Basic /);
   assert.equal((await fetch(`${locked}/Houdini/api/media`)).status, 401);
-  assert.equal((await fetch(`${locked}/Houdini/api/overview`)).status, 200, 'overview stays open');
-  const s0 = await (await fetch(`${locked}/Houdini/api/session`)).json();
-  assert.equal(s0.configured, false);
+  assert.equal((await fetch(`${locked}/Houdini/api/overview`)).status, 401, 'F4: overview needs credentials too');
+  const h0 = await (await fetch(`${locked}/Houdini/healthz`)).json();
+  assert.equal(h0.auth.configured, false);
 
   const base = await serve(t, { collectorDir: dir, authMode: 'basic', users: `viewer:${hashPassword('correct horse battery')}` });
   const good = 'Basic ' + Buffer.from('viewer:correct horse battery').toString('base64');
@@ -70,9 +70,8 @@ test('auth: deny by default; Basic credentials unlock reports and media; wrong p
   const ok = await fetch(`${base}/Houdini/api/reports/0123456789abcdef`, { headers: { Authorization: good } });
   assert.equal(ok.status, 200);
   assert.equal(await ok.text(), '본문');
-  const login = await fetch(`${base}/Houdini/login`, { headers: { Authorization: good }, redirect: 'manual' });
-  assert.equal(login.status, 302);
-  assert.equal(login.headers.get('location'), './');
+  const sess = await (await fetch(`${base}/Houdini/api/session`, { headers: { Authorization: good } })).json();
+  assert.equal(sess.user, 'viewer');
 });
 
 test('auth off is refused on a non-loopback listener', () => {
@@ -99,18 +98,19 @@ test('overview: compute claim follows freshness; sources list every input; recor
   const base = await serve(t, { collectorDir: await collectorFixture(t) });
   const o = await (await fetch(`${base}/Houdini/api/overview`)).json();
   assert.equal(o.mode, 'live');
-  assert.equal(o.compute.state, 'running');
+  assert.equal(o.compute.physics.state, 'unverified');
+  assert.equal(o.compute.activity.state, 'detected');
   assert.deepEqual(o.sources.map(s => s.key), ['collector', 'records', 'ledger', 'media', 'reports']);
   assert.equal(o.records.current_recorded_stage, 'TC-00-03R');
   assert.equal(o.collector.stage, 'TC-00-03', 'collector value shown as collected, not rewritten');
   assert.ok(o.records.issues.map(i => i.id).join() === 'V2,V3,V5');
   const stale = await serve(t, { collectorDir: await collectorFixture(t, { generated_at: new Date(Date.now() - 600000).toISOString() }) });
   const s = await (await fetch(`${stale}/Houdini/api/overview`)).json();
-  assert.equal(s.compute.state, 'unknown');
+  assert.equal(s.compute.activity.state, 'unknown');
   const none = await serve(t, { collectorDir: null });
   const n = await (await fetch(`${none}/Houdini/api/overview`)).json();
   assert.equal(n.collector.state, 'missing');
-  assert.equal(n.compute.state, 'unknown');
+  assert.equal(n.compute.activity.state, 'unknown');
 });
 
 test('example mode is labelled everywhere it matters', async t => {

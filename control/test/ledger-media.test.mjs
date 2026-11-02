@@ -11,7 +11,7 @@ test('ledger: experiments grouped by stage, failure record and superseded marks 
   assert.equal(v.state, 'ok');
   const byId = Object.fromEntries(v.experiments.map(e => [e.id, e]));
   assert.equal(byId['tc00_03/batch_131826'].results, 2);
-  assert.deepEqual(byId['tc00_03/batch_131826'].code_sha256, ['ab'.repeat(8)]);
+  assert.equal(byId['tc00_03/batch_131826'].code_status, 'match');
   assert.equal(byId['tc00_03/batch_131826'].time_kst, '2026-10-30 13:18:26');
   assert.equal(byId.runs.validity, 'invalid');
   assert.equal(byId.runs.untracked_files, 1);

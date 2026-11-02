@@ -3,7 +3,8 @@
 #
 #   docker compose up -d web
 #
-# Builds nothing. The image is built from control/Dockerfile and its tag lives in .env (IMAGE_TAG).
+# Builds nothing and downloads nothing (pull_policy: never): the image must already exist locally,
+# built from an approved commit (control/Dockerfile, base pinned by digest). Its tag lives in .env.
 # All host paths come from .env so that no server path is written into this public repository.
 # `:?` stops compose when a value is missing instead of silently mounting something else.
 name: houdini
@@ -11,12 +12,17 @@ name: houdini
 services:
   web:
     image: koprifossillab/houdini-control:${IMAGE_TAG:?IMAGE_TAG 를 .env 에 넣을 것}
+    pull_policy: never
     env_file: [.env]
     environment:
       TZ: Asia/Seoul
       HOST: 0.0.0.0
       PORT: "8097"
       HPC_BASE_PATH: /Houdini
+      HPC_AUTH: basic
+      HPC_REQUIRE_TLS: "1"
+      # the reverse proxy reaches the container through this network's gateway (see networks below)
+      HPC_TRUSTED_PROXIES: "${HPC_NET_GATEWAY:?},::ffff:${HPC_NET_GATEWAY:?}"
       HPC_COLLECTOR_DIR: /data/collector
       HPC_LEDGER_DIR: /data/ledger
       HPC_MEDIA_DIR: /data/media
@@ -36,11 +42,21 @@ services:
       - ${HPC_MEDIA_HOST_DIR:?미리보기 미디어 폴더}:/data/media:ro
       - ${HPC_MEDIA_MANIFEST_HOST:?미디어 목록 JSON}:/data/runtime/media.json:ro
     ports:
-      # loopback only — the one way in from outside is nginx (/Houdini/ -> 8097)
+      # loopback only — the one way in from outside is nginx over TLS
       - "127.0.0.1:${HPC_HOST_PORT:-8097}:8097"
+    networks: [default]
     restart: unless-stopped
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+
+networks:
+  default:
+    ipam:
+      config:
+        # fixed so the gateway (= the proxy's source address inside the container) is known.
+        # pick a subnet no other docker network or site network uses.
+        - subnet: ${HPC_NET_SUBNET:?예 10.197.97.0/29}
+          gateway: ${HPC_NET_GATEWAY:?예 10.197.97.1}

@@ -35,9 +35,18 @@ export async function ledgerFixture(t) {
   await add('tools/bpm2d_v1.py', 'print(1)\n', 'code');
   await add('tools/proxy2d_dem.py', 'print(0)\n', 'code');
   await add('TC00_03R_DIAGNOSIS.md', '# 03R\n<LAB_SERVER> 에서 실행. /home/someone/x 경로\n', 'report', { identical: false });
-  await add('tc00_03/batch_131826/a/result.json', JSON.stringify({ code_sha256: 'ab'.repeat(32) }), 'result_json');
-  await add('tc00_03/batch_131826/b/result.json', JSON.stringify({ code_sha256: 'ab'.repeat(32) }), 'result_json');
-  await add('runs/free_uniform/result.json', JSON.stringify({ code_sha256: 'cd'.repeat(32) }), 'result_json');
+  // real shapes (2026-11-02 F2): code_sha256 is usually { "<file>.py": "<hex>" }, sometimes a bare hex
+  // string; Python-written results may contain bare NaN / Infinity.
+  const H = name => files.find(f => f.source_rel.endsWith(name)).sha256;
+  await add('tc00_03/batch_131826/a/result.json', `{"code_sha256": {"bpm2d_v1.py": "${H('bpm2d_v1.py')}"}, "gap": NaN, "v": -Infinity}`, 'result_json');
+  await add('tc00_03/batch_131826/b/result.json', JSON.stringify({ code_sha256: { 'bpm2d_v1.py': H('bpm2d_v1.py') }, note: 'NaN in a string stays' }), 'result_json');
+  await add('runs/free_uniform/result.json', JSON.stringify({ code_sha256: H('proxy2d_dem.py') }), 'result_json');
+  await add('tc00_03R/out/diag_v3_143810/x.json', JSON.stringify({ code_sha256: { 'bpm2d_v1.py': 'ab'.repeat(32), 'bpm2d_v1b.py': 'cd'.repeat(32) } }), 'result_json');
+  await add('tc00_03R/out/diag_v5_143847/y.json', JSON.stringify({ code_sha256: 'ef'.repeat(32) }), 'result_json');
+  await add('tc00_03R/out/diag_v5_143847/z.json', JSON.stringify({ other: 1 }), 'result_json');
+  await add('tc00_03R/out/diag_v2c_152318/w.json', JSON.stringify({ code_sha256: { 'bpm2d_v1.py': 'not-a-hash' } }), 'result_json');
+  await add('tc00_03R/out/diag_v2_142355/p.json', JSON.stringify({ code_sha256: { 'bpm2d_v1.py': H('bpm2d_v1.py') } }), 'result_json');
+  await add('tc00_03R/out/diag_v2_142355/q.json', JSON.stringify({ result: 1 }), 'result_json');
   await add('tc00_02/kinematics_130254/kinematics.json', '{}', 'result_json');
   await put('manifests/tc00_import_manifest.json', JSON.stringify({ files }));
   await put('manifests/tc00_source_inventory.json', JSON.stringify({ files: [
@@ -50,9 +59,9 @@ export async function ledgerFixture(t) {
 }
 
 export async function serve(t, cfg) {
-  const server = createApp({ host: '127.0.0.1', basePath: '/Houdini', allowedHosts: ['127.0.0.1', 'localhost'], authMode: 'off', users: '', demo: false, recordsFile: new URL('../data/records.json', import.meta.url).pathname, ...cfg });
+  const server = createApp({ host: '127.0.0.1', basePath: '/Houdini', allowedHosts: ['127.0.0.1', 'localhost'], authMode: 'off', users: '', demo: false, requireTls: false, trustedProxies: ['127.0.0.1', '::ffff:127.0.0.1'], recordsFile: new URL('../data/records.json', import.meta.url).pathname, ...cfg });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
-  t.after(() => new Promise(r => server.close(r)));
+  t.after(() => new Promise(r => { server.closeAllConnections?.(); server.close(r); }));
   return `http://127.0.0.1:${server.address().port}`;
 }
 

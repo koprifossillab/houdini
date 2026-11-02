@@ -1,12 +1,14 @@
 # Houdini Production Control — no npm dependencies, so the image is the Node runtime plus the app files.
 # Build:  docker build -t koprifossillab/houdini-control:<version> control/
-FROM node:22.22.1-alpine3.22
+# base pinned by digest (checked 2026-11-02) — a moved tag cannot change what is built
+FROM node:22.22.1-alpine3.22@sha256:9f96f09f127f06feaff1e7faa4a34a3020cf5c1138c988782e59959641facabe
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=8097 \
     HPC_BASE_PATH=/Houdini \
     HPC_AUTH=basic \
+    HPC_REQUIRE_TLS=1 \
     HPC_COLLECTOR_DIR=/data/collector \
     HPC_LEDGER_DIR=/data/ledger \
     HPC_MEDIA_DIR=/data/media \

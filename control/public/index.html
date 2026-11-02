@@ -31,7 +31,7 @@
       <p>계산 근거 · 독립 검증 · 감독 판정을 한 화면에서 — 관측과 승인 기록은 따로 표시합니다.</p>
     </div>
     <div class="compute" id="compute" aria-live="polite">
-      <small>계산 실행</small><b id="compute-label">—</b><span id="compute-basis"></span>
+      <small>계산 실행</small><b id="compute-label">—</b><div id="compute-basis" class="compute-lines"></div>
     </div>
   </section>
 
@@ -82,6 +82,7 @@
     <div class="cols">
       <article class="panel"><div class="panel-head"><h2>실험 이력</h2><span class="muted" id="lab-note"></span></div><div class="table-wrap"><table id="experiments"></table></div></article>
       <aside>
+        <article class="panel"><div class="panel-head"><h2>코드 해시 대조</h2><span class="tag">저장소 manifest</span></div><div id="code-check"></div></article>
         <article class="panel"><div class="panel-head"><h2>재현 정보</h2></div><div id="env"></div></article>
         <article class="panel"><div class="panel-head"><h2>판정 도구 코드</h2></div><div id="tools"></div></article>
       </aside>
