@@ -1,0 +1,10 @@
+# runtime config and data (paths, media lists, credentials) never go to Git
+runtime/
+.env
+*.env
+!deploy/srv/env.example
+node_modules/
+*.log
+evidence/
+Thumbs.db
+.DS_Store

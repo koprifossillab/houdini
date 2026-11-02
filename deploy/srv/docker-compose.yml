@@ -1,0 +1,46 @@
+# Houdini Production Control — operations compose. Copy to the service directory on the server
+# (proposed: /srv/Houdini/docker-compose.yml) next to a .env made from env.example.
+#
+#   docker compose up -d web
+#
+# Builds nothing. The image is built from control/Dockerfile and its tag lives in .env (IMAGE_TAG).
+# All host paths come from .env so that no server path is written into this public repository.
+# `:?` stops compose when a value is missing instead of silently mounting something else.
+name: houdini
+
+services:
+  web:
+    image: koprifossillab/houdini-control:${IMAGE_TAG:?IMAGE_TAG 를 .env 에 넣을 것}
+    env_file: [.env]
+    environment:
+      TZ: Asia/Seoul
+      HOST: 0.0.0.0
+      PORT: "8097"
+      HPC_BASE_PATH: /Houdini
+      HPC_COLLECTOR_DIR: /data/collector
+      HPC_LEDGER_DIR: /data/ledger
+      HPC_MEDIA_DIR: /data/media
+      HPC_MEDIA_MANIFEST: /data/runtime/media.json
+    # uid of the image's `node` user; data is read through world-readable files only
+    user: "1000:1000"
+    read_only: true
+    tmpfs: [/tmp:size=8m]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    pids_limit: 64
+    volumes:
+      # every input is read-only — the service never writes to them
+      - ${HPC_COLLECTOR_HOST_DIR:?수집기 출력 폴더}:/data/collector:ro
+      - ${HPC_LEDGER_HOST_DIR:?승인된 제작 저장소 checkout}:/data/ledger:ro
+      - ${HPC_MEDIA_HOST_DIR:?미리보기 미디어 폴더}:/data/media:ro
+      - ${HPC_MEDIA_MANIFEST_HOST:?미디어 목록 JSON}:/data/runtime/media.json:ro
+    ports:
+      # loopback only — the one way in from outside is nginx (/Houdini/ -> 8097)
+      - "127.0.0.1:${HPC_HOST_PORT:-8097}:8097"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

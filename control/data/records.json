@@ -1,0 +1,57 @@
+{
+  "provenance": "recorded",
+  "recorded_at": "2026-11-02T11:00:00+09:00",
+  "source": "총괄 감독 지시문과 2026-10-30 보고서에서 손으로 옮긴 기록 — 실시간 판정이 아님",
+  "maintainer": "Houdini 제작 세션",
+  "current_recorded_stage": "TC-00-03R",
+  "stage_note": "수집기는 단계를 TC-00-03 으로 읽는다(03R 접미사를 단계로 보지 않음). 이 화면의 단계 표시는 이 기록을 따른다.",
+  "stages": [
+    { "id": "TC-00", "label": "환경·물리 모델 검토", "state": "진단 완료 · 판정 대기", "tone": "current",
+      "steps": [
+        { "id": "TC-00-02", "label": "진단", "state": "보고 완료" },
+        { "id": "TC-00-03", "label": "2D 판정 도구", "state": "완료 인정" },
+        { "id": "TC-00-03R", "label": "V2·V3·V5 원인 진단", "state": "보고 완료 · 감독 판정 대기" },
+        { "id": "TC-00-04", "label": "PC Houdini 기능 확인", "state": "미승인" }
+      ] },
+    { "id": "TC-01", "label": "신장·파열", "state": "미승인", "tone": "locked" },
+    { "id": "TC-02", "label": "하부 파쇄", "state": "미승인", "tone": "locked" },
+    { "id": "TC-03", "label": "전체 통합", "state": "미승인", "tone": "locked" },
+    { "id": "TERRAIN", "label": "지형·최종 제작", "state": "미승인", "tone": "locked" }
+  ],
+  "stage_label_source": "TC-01 이후 단계 이름은 Work 설계안(2026-11-02)의 명칭이다.",
+  "teams": {
+    "houdini": { "label": "Houdini 제작팀", "note": "2026-11-02 제작 담당이 새 저장소의 Houdini 세션으로 옮겨 왔다. 기존 수집기는 옛 작업 폴더만 보므로 새 저장소의 활동은 관측하지 않는다." },
+    "verify": { "label": "독립 물리·기술 검증팀", "note": "검증 원본은 검증팀 소유 — 이 서비스는 수집기가 복사한 보고서만 읽는다." },
+    "blender": { "label": "Blender 지형 제작", "note": "Houdini 효과 시험 승인 전에는 지형·메시·렌더 작업을 하지 않는다." },
+    "work": { "label": "Work · 설계·조율·보고", "note": "서버 밖에서 일한다 — 서버는 현재 활동을 관측할 수 없다." },
+    "director": { "label": "총괄 감독", "note": "승인·반려·보류와 다음 단계 결정. 서버 수집기는 감독 대화를 관측하지 않는다." }
+  },
+  "issues": [
+    { "id": "V2", "title": "마찰 계산·에너지 장부", "status": "결함 미해결",
+      "diagnosis": "Jacobi 마찰의 고착 출렁임이 장부를 과대 계상함(GS 로 닫힘). 접촉 감쇠 누락·압축 끊김 이중 계상 확인. 전단 시험에서 운반 거리 5–6 %, 판 끌림 Coulomb 2.6배 차이.",
+      "independent": "최소 시험 재현. 전단 영향은 추가 확인 항목.",
+      "unresolved": "수정(GS 전환·장부 정정) 적용과 TC-00-03 판정 재확인 — 미승인.",
+      "evidence": "TC00_03R_DIAGNOSIS §1, §7" },
+    { "id": "V3", "title": "신장 전 결합 파괴", "status": "원인 미확정",
+      "diagnosis": "약대 강도 3 kPa < 끝 입자 결합 인장 4.0–4.5 kPa. 짝·홀 배치를 바꿔도 남음.",
+      "independent": "연속체 FE 에서는 재현되지 않음(≤ 1 kPa) — 이산 입자 끝 효과로 정정.",
+      "unresolved": "끝 입자 국소 미끄럼 또는 해상도 효과 — 시험 미실시.",
+      "evidence": "TC00_03R_DIAGNOSIS §2, §7" },
+    { "id": "V5", "title": "파편 운동·회전 저항", "status": "결함 미해결",
+      "diagnosis": "속도 지표 분모 문제, 원형 입자 영구 굴림(장난감 시험 재현), 부드러운 E 로 탄성 방출 과대.",
+      "independent": "굴림 이론과 방출 축척에 동의.",
+      "unresolved": "전체 모델 파편 회전 속도 미저장 · 회전 저항 계수는 새 가정이라 근거·민감도 시험 필요.",
+      "evidence": "TC00_03R_DIAGNOSIS §3, §7" }
+  ],
+  "decisions": [
+    { "id": "director-tc03-complete", "scope": "TC-00-03 실험·독립 검증", "decision": "완료 인정", "tone": "approved", "by": "총괄 감독", "date": "일자 미기록", "evidence": "감독 TC-00-03 최종 판정" },
+    { "id": "director-physics-hold", "scope": "물리 모델 전체 PASS", "decision": "보류", "tone": "hold", "by": "총괄 감독", "date": "일자 미기록", "evidence": "미해결 수치 결함 및 지질 가정" },
+    { "id": "director-r-limited", "scope": "TC-00-03R 원인 진단·최소 시험", "decision": "제한 승인", "tone": "approved", "by": "총괄 감독", "date": "2026-10-30", "evidence": "감독 제한 후속 지시 — 14:20:51 수신 확인" },
+    { "id": "director-future", "scope": "수정 적용 · TC-00-04 · TC-01 · GPU · Houdini 3D", "decision": "미승인", "tone": "locked", "by": "총괄 감독", "date": "일자 미기록", "evidence": "별도 승인 필요" },
+    { "id": "director-dikemap-off", "scope": "DikeMap 공사 현장 화면", "decision": "제거(v0.131.0)", "tone": "info", "by": "총괄 감독 기록", "date": "2026-11-02", "evidence": "인수인계 지시 §3 — 지도 첫 화면 복원" },
+    { "id": "director-import", "scope": "TC-00 코드 이전 · Houdini 전용 Python 환경", "decision": "실행 승인 → 로컬 커밋", "tone": "approved", "by": "총괄 감독", "date": "2026-11-02", "evidence": "작업 브랜치 로컬 커밋, 독립 검증·main 병합 심사 대기" },
+    { "id": "director-dashboard-proto", "scope": "관제실 로컬 프로토타입(Work)", "decision": "조건부 승인", "tone": "approved", "by": "총괄 감독", "date": "2026-11-02", "evidence": "로컬 개발·시험·commit 허용. 초 단위 관측·push·운영 배포 미승인" },
+    { "id": "director-webservice", "scope": "Houdini Production Control 웹서비스", "decision": "개발 지시", "tone": "approved", "by": "총괄 감독", "date": "2026-11-02", "evidence": "구현은 Houdini 제작 담당. push · main 병합 · 운영 컨테이너 · Nginx · 포털 변경은 별도 승인" },
+    { "id": "director-observer", "scope": "3–5초 신규 세션 관측 장치", "decision": "미승인", "tone": "locked", "by": "총괄 감독", "date": "2026-11-02", "evidence": "별도 승인 전 구현·설치 금지" }
+  ]
+}
