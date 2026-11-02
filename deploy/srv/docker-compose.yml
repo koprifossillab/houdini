@@ -19,7 +19,10 @@ services:
       HOST: 0.0.0.0
       PORT: "8097"
       HPC_BASE_PATH: /Houdini
-      HPC_AUTH: basic
+      # basic (default) | off. off outside loopback also needs HPC_ALLOW_OPEN=1 — the owner chose open
+      # lab-network operation on 2026-11-02 (like the other lab sites).
+      HPC_AUTH: "${HPC_AUTH:-basic}"
+      HPC_ALLOW_OPEN: "${HPC_ALLOW_OPEN:-0}"
       # "1" = research views only over HTTPS via the trusted proxy (default). "0" = plain-HTTP portal
       # operation, chosen by the owner on 2026-11-02 because the site VPN only passes port 80.
       HPC_REQUIRE_TLS: "${HPC_REQUIRE_TLS:-1}"

@@ -278,8 +278,8 @@ async function refresh() {
 
 async function init() {
   try { session = await getJson('api/session'); } catch { /* keep defaults */ }
-  $('access').textContent = session.user ? `인증됨 · ${session.user}` : '인증 상태 확인 불가';
-  $('access').className = `pill ${session.user ? 'ok' : 'dim'}`;
+  $('access').textContent = session.auth === 'off' ? (session.user ? `로그인 없음 · ${session.user}` : '로그인 없음 · 사내망 공개') : session.user ? `인증됨 · ${session.user}` : '인증 상태 확인 불가';
+  $('access').className = `pill ${session.auth === 'off' ? 'dim' : session.user ? 'ok' : 'dim'}`;
   $('version').textContent = `v${session.version || '?'}${session.demo ? ' · 예시 모드' : ''}`;
   document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => {
     document.querySelectorAll('[data-tab]').forEach(x => x.setAttribute('aria-selected', String(x === b)));

@@ -30,8 +30,10 @@ export function parseUsers(spec = '') {
   return users;
 }
 
-export function createAuth({ mode = 'basic', users = new Map(), loopbackOnly = false, limits = {} } = {}) {
-  if (mode === 'off' && !loopbackOnly) throw Error('HPC_AUTH=off 은 루프백 개발 서버에서만 허용됨');
+// HPC_AUTH=off off loopback needs the explicit HPC_ALLOW_OPEN=1 (owner decision 2026-11-02: the portal
+// service is open on the lab network like the other lab sites). Without it, off stays loopback-only.
+export function createAuth({ mode = 'basic', users = new Map(), loopbackOnly = false, allowOpen = false, limits = {} } = {}) {
+  if (mode === 'off' && !loopbackOnly && !allowOpen) throw Error('HPC_AUTH=off 은 루프백 개발 서버에서만 허용됨 (운영 공개는 HPC_ALLOW_OPEN=1 을 함께)');
   if (!['basic', 'off'].includes(mode)) throw Error('HPC_AUTH 는 basic 또는 off');
   const L = { ...LIMITS, ...limits };
   const dummy = { salt: Buffer.alloc(16), hash: Buffer.alloc(32) };
@@ -76,7 +78,7 @@ export function createAuth({ mode = 'basic', users = new Map(), loopbackOnly = f
     stats,
     // -> { ok: true, user } | { ok: false, status: 401 | 429, retryAfter? }
     async check(header, client = 'unknown') {
-      if (mode === 'off') return { ok: true, user: 'local-dev' };
+      if (mode === 'off') return { ok: true, user: loopbackOnly ? 'local-dev' : null };
       const m = /^Basic ([A-Za-z0-9+/=]{1,512})$/.exec(header || '');
       if (!m) return { ok: false, status: 401 };
       const k = key(m[1]);

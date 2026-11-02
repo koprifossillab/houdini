@@ -46,6 +46,7 @@ export function configFromEnv(env = process.env) {
     mediaManifest: env.HPC_MEDIA_MANIFEST || null,
     recordsFile: env.HPC_RECORDS || path.join(ROOT, 'data', 'records.json'),
     authMode: env.HPC_AUTH || 'basic',
+    allowOpen: env.HPC_ALLOW_OPEN === '1',
     users: env.HPC_USERS || '',
     demo: env.HPC_DEMO === '1',
     demoState: ['live', 'stale', 'missing', 'error'].includes(env.HPC_DEMO_STATE) ? env.HPC_DEMO_STATE : 'live',
@@ -101,7 +102,7 @@ export function routeId(raw) {
 }
 
 export function createApp(cfg = configFromEnv()) {
-  const auth = createAuth({ mode: cfg.authMode, users: parseUsers(cfg.users), loopbackOnly: isLoopback(cfg.host), limits: cfg.authLimits });
+  const auth = createAuth({ mode: cfg.authMode, users: parseUsers(cfg.users), loopbackOnly: isLoopback(cfg.host), allowOpen: !!cfg.allowOpen, limits: cfg.authLimits });
   if (cfg.authMode === 'off' && cfg.requireTls) throw Error('HPC_AUTH=off 와 TLS 요구는 함께 쓸 수 없음');
   const example = () => (cfg.demo && cfg.demoState !== 'missing' ? exampleCollector(Date.now(), cfg.demoState) : null);
   // The ledger changes only with a new checkout; re-read at most every 30 s.

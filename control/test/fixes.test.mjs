@@ -231,3 +231,15 @@ test('F4 proxy token: a trusted address alone cannot claim https when a token is
   assert.equal(routeId('/Houdini/static/app.js'), 'static');
   assert.equal(routeId('/home/someone/secret'), 'other');
 });
+
+test('open operation (owner decision): auth=off off loopback only with explicit HPC_ALLOW_OPEN', async t => {
+  const { createApp } = await import('../server.mjs');
+  assert.throws(() => createApp({ host: '0.0.0.0', authMode: 'off', allowedHosts: [], basePath: '/Houdini', requireTls: false }), /HPC_ALLOW_OPEN/);
+  assert.throws(() => createApp({ host: '0.0.0.0', authMode: 'off', allowOpen: true, allowedHosts: [], basePath: '/Houdini', requireTls: true }), /TLS/);
+  const base = await serve(t, { collectorDir: await collectorFixture(t), host: '0.0.0.0', authMode: 'off', allowOpen: true });
+  assert.equal((await fetch(`${base}/Houdini/`)).status, 200);
+  assert.equal((await fetch(`${base}/Houdini/api/reports`)).status, 200);
+  const s = await (await fetch(`${base}/Houdini/api/session`)).json();
+  assert.equal(s.auth, 'off');
+  assert.equal(s.user, null);
+});
