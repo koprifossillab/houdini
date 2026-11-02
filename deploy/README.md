@@ -1,4 +1,4 @@
-# Houdini Production Control — 배포·롤백 절차 (v0.2.0, HTTPS 전제)
+# Houdini Production Control — 배포·롤백 절차 (v0.1.1, HTTPS 전제)
 
 이 문서의 단계는 **모두 승인 뒤에** 운영자가 실행합니다. 개발 브랜치에서는 실행하지 않았습니다.
 
@@ -26,7 +26,7 @@
 
 ```bash
 # 열람 계정 한 명 — 비밀번호는 화면에 보이지 않게 읽고 바로 지운다
-read -rs PW && printf %s "$PW" | docker run --rm -i --network none koprifossillab/houdini-control:0.2.0 \
+read -rs PW && printf %s "$PW" | docker run --rm -i --network none koprifossillab/houdini-control:0.1.1 \
   node scripts/hash-password.mjs viewer > /srv/Houdini/runtime/user.line; unset PW
 # 출력 한 줄을 편집기로 .env 의 HPC_USERS= 뒤에 옮긴다(여러 명은 ; 로 잇는다). 그 다음:
 shred -u /srv/Houdini/runtime/user.line
@@ -47,7 +47,7 @@ TOKEN=$(head -c 32 /dev/urandom | base64 | tr -d '/+=') && \
 ```bash
 sudo install -d -o <포털 운영 계정> -g <포털 운영 그룹> -m 2775 /srv/Houdini /srv/Houdini/www /srv/Houdini/runtime
 git clone --branch main <저장소> /srv/Houdini/ledger && chmod -R a-w /srv/Houdini/ledger   # 승인된 판, 읽기 전용
-docker build -t koprifossillab/houdini-control:0.2.0 control/     # 기본 이미지는 digest로 고정
+docker build -t koprifossillab/houdini-control:0.1.1 control/     # 기본 이미지는 digest로 고정
 cp deploy/srv/docker-compose.yml /srv/Houdini/
 install -m 640 deploy/srv/env.example /srv/Houdini/.env           # 편집기로 값 채우기
 cp deploy/www/Houdini-unavailable.html /srv/Houdini/www/
