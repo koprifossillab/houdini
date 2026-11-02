@@ -20,7 +20,9 @@ services:
       PORT: "8097"
       HPC_BASE_PATH: /Houdini
       HPC_AUTH: basic
-      HPC_REQUIRE_TLS: "1"
+      # "1" = research views only over HTTPS via the trusted proxy (default). "0" = plain-HTTP portal
+      # operation, chosen by the owner on 2026-11-02 because the site VPN only passes port 80.
+      HPC_REQUIRE_TLS: "${HPC_REQUIRE_TLS:-1}"
       # the reverse proxy reaches the container through this network's gateway (see networks below)
       HPC_TRUSTED_PROXIES: "${HPC_NET_GATEWAY:?},::ffff:${HPC_NET_GATEWAY:?}"
       HPC_COLLECTOR_DIR: /data/collector
