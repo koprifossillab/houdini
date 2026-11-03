@@ -274,7 +274,7 @@ function teamCard(t) {
   const s = t.session, hd = t.handoff || {}, pv = t.previous_session;
   const timedRow=(key,label)=>h('div',{class:'tl-row'},h('span',{text:label}),h('span',{id:`tl-${key}-${t.team_id}`,text:'미확인'}));
   const tk = t.tokens || {};
-  return h('div', { class: `tl-card ${t.execution.state}` },
+  return h('div', { class: `tl-card ${t.execution.state}${t.team_id==='TC-WORK'?' tc-work-card':''}` },
     h('div', { class: 'team-head' }, h('h3', { text: t.label }), tag(t.team_id, 'locked')),
     h('div', { class: `tl-link ${t.link?.level || 'none'}` }, h('b', { text: t.team_id==='TC-WORK'&&t.work_activity?.verified?'서명된 Work 기록 연결':t.link?.level === 'full' ? '완전 연결' : t.link?.level === 'name_only' ? '팀 이름만 식별 — 완전 연결 아님' : '연결된 세션 없음' }),
       t.link?.missing?.length ? h('span', { text: `빠진 조건: ${t.link.missing.join(' · ')}` }) : t.link?.level === 'full' ? h('span', { text: '팀 이름 · 팀 시작 폴더 · 담당 팀 인수인계 모두 일치' }) : null),

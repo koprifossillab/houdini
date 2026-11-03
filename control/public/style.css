@@ -272,3 +272,6 @@ footer { max-width: 1480px; margin: 0 auto; padding: 14px 32px 28px; display: fl
 .tl-link.none { border-style: dashed; color: var(--muted); }
 .tk-warn { margin: 0 0 12px; border-radius: 8px; }
 .tk-warn { padding: 8px 12px; border: 1px solid var(--amber); color: var(--amber); }
+
+/* Only the Work card: preserve full evidence hashes without widening the page. */
+.tc-work-card{min-width:0;overflow-wrap:anywhere}.tc-work-card .tl-row,.tc-work-card .tl-row>span{min-width:0;overflow-wrap:anywhere;word-break:break-word}.tc-work-card li{overflow-wrap:anywhere}
