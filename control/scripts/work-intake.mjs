@@ -27,7 +27,11 @@ export async function intake(root,handoff,key,request){
  if(owned.data.work_event_hash!==verified.hash){
   const updated={...owned.data,team_id:'TC-WORK',author:'TC-WORK',attestation:'verified local Work event signature',
    task_id:p.task_id,commit:p.commit,last_confirmed_state:p.summary,next:p.next,artifacts:p.artifacts,evidence_time:p.occurred_at,
-   work_event_hash:verified.hash,work_event_type:p.event_type,recorded_at:p.occurred_at,previous:owned.h};
+   work_event_hash:verified.hash,work_event_type:p.event_type,recorded_at:p.occurred_at,previous:owned.h,
+   validation:p.validation,
+   technical_completion:{state:p.validation==='technical_pass'?'complete':p.validation==='technical_fail'?'failed':'unknown',basis:'Work 자체 기술 확인 기록 · 독립 검증 아님',evidence_ref:p.event_id,recorded_at:p.occurred_at},
+   independent_physics:{state:'unknown',basis:'Work 이벤트로 물리 검증을 판정하지 않음',evidence_ref:p.event_id,recorded_at:p.occurred_at},
+   director_decision:{state:'unknown',basis:'서명된 Work 작업 기록은 감독 승인을 대신하지 않음',evidence_ref:p.event_id,recorded_at:p.occurred_at}};
   const bytes=Buffer.from(JSON.stringify(updated));const revision=crypto.randomUUID().replaceAll('-','')+'.json';
   const file=await fs.open(path.join(handoff,'history',revision),'wx',0o600);try{await file.writeFile(bytes);await file.sync();}finally{await file.close();}
   await atomic(path.join(handoff,'HEAD.json'),{revision,sha256:digest(bytes)});

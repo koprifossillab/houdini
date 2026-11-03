@@ -10,7 +10,7 @@ import {attachWorkActivity} from '../lib/workactivity.mjs';
 const keys=crypto.generateKeyPairSync('ed25519');
 function payload(overrides={}){return {schema:'tc-work-event/1',team_id:'TC-WORK',event_id:crypto.randomUUID(),sequence:1,previous_hash:null,event_type:'start',task_id:'TC-WORK-TEST',occurred_at:new Date().toISOString(),summary:'격리된 Work 활동 시험',commit:'a'.repeat(40),next:['다음 검수'],artifacts:[],validation:'not_reviewed',handoff_sha256:'b'.repeat(64),...overrides};}
 function envelope(p,key=keys.privateKey){const b=Buffer.from(JSON.stringify(p));return {payload_b64:b.toString('base64'),signature_b64:crypto.sign(null,b,key).toString('base64')};}
-async function setup(t){const root=await tmp(t),ledger=path.join(root,'handoff');for(const d of ['private/history','out','handoff/history'])await fs.mkdir(path.join(root,d),{recursive:true});const b=Buffer.from(JSON.stringify({team_id:'TC-WORK',author:'TC-WORK',next:[]}));await fs.writeFile(path.join(ledger,'history','initial.json'),b);await fs.writeFile(path.join(ledger,'HEAD.json'),JSON.stringify({revision:'initial.json',sha256:digest(b)}));return {root,ledger,sha:digest(b)};}
+async function setup(t){const root=await tmp(t),ledger=path.join(root,'handoff');for(const d of ['private/history','out','handoff/history'])await fs.mkdir(path.join(root,d),{recursive:true});const b=Buffer.from(JSON.stringify({team_id:'TC-WORK',author:'TC-WORK',task_id:'OLD',next:[],technical_completion:{state:'complete'},independent_physics:{state:'PASS'},director_decision:{state:'approved'}}));await fs.writeFile(path.join(ledger,'history','initial.json'),b);await fs.writeFile(path.join(ledger,'HEAD.json'),JSON.stringify({revision:'initial.json',sha256:digest(b)}));return {root,ledger,sha:digest(b)};}
 test('Work signature and strict safe schema reject wrong key, modified payload, paths and other team',()=>{
  const p=payload(),e=envelope(p);assert.equal(verifyEvent(e,keys.publicKey).payload.team_id,'TC-WORK');
  const other=crypto.generateKeyPairSync('ed25519');assert.throws(()=>verifyEvent(envelope(p,other.privateKey),keys.publicKey));
@@ -23,7 +23,7 @@ test('authenticated intake submits atomically, updates only Work ledger, and ded
  const retry=await intake(root,ledger,keys.publicKey,{command:'submit',envelope:e});assert.equal(retry.duplicate,true);
  assert.equal((await fs.readdir(path.join(root,'private/history'))).length,1);
  const h=JSON.parse(await fs.readFile(path.join(ledger,'HEAD.json')));const record=JSON.parse(await fs.readFile(path.join(ledger,'history',h.revision)));
- assert.equal(record.team_id,'TC-WORK');assert.equal(record.work_event_hash,a.event_hash);assert.equal(record.task_id,p.task_id);
+ assert.equal(record.team_id,'TC-WORK');assert.equal(record.work_event_hash,a.event_hash);assert.equal(record.task_id,p.task_id);assert.equal(record.technical_completion.state,'unknown');assert.equal(record.independent_physics.state,'unknown');assert.equal(record.director_decision.state,'unknown');
  assert.equal((await fs.stat(path.join(root,'out/latest.json'))).mode&0o777,0o644);
 });
 test('replay, out-of-order, stale timestamp and stale handoff are rejected',async t=>{
