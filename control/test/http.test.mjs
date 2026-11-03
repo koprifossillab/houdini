@@ -100,7 +100,7 @@ test('overview: compute claim follows freshness; sources list every input; recor
   assert.equal(o.mode, 'live');
   assert.equal(o.compute.physics.state, 'unverified');
   assert.equal(o.compute.activity.state, 'detected');
-  assert.deepEqual(o.sources.map(s => s.key), ['collector', 'records', 'ledger', 'media', 'reports']);
+  assert.deepEqual(o.sources.map(s => s.key), ['team_live', 'collector', 'records', 'ledger', 'media', 'reports']);
   assert.equal(o.records.current_recorded_stage, 'TC-00-03R');
   assert.equal(o.collector.stage, 'TC-00-03', 'collector value shown as collected, not rewritten');
   assert.ok(o.records.issues.map(i => i.id).join() === 'V2,V3,V5');

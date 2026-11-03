@@ -50,9 +50,23 @@
   </nav>
 
   <section id="tab-overview" class="tab" role="tabpanel">
+    <article class="panel live-panel">
+      <div class="panel-head"><h2>팀 실시간 현황</h2><span class="live-meta"><span id="tl-feed" class="pill">확인 중</span><span id="tl-age" class="mono muted">—</span></span></div>
+      <p class="muted">실행 상태는 서버 Claude Code 세션의 프로세스·등록 정보로만 판정합니다. 마지막 인수인계·기술 완료·물리 검증·감독 승인은 각각 따로 표시합니다.</p>
+      <div id="tl-teams" class="tl-teams"></div>
+      <div id="tl-notes" class="tl-notes"></div>
+      <details class="tl-events"><summary>세션 연결·종료 기록</summary><ol id="tl-events" class="timeline"></ol></details>
+    </article>
+    <article class="panel live-panel">
+      <div class="panel-head"><h2>토큰 사용량 · 비용 환산</h2><span class="tag" id="tk-scope">—</span></div>
+      <div class="banner warn tk-warn">실제 청구액이 아닙니다 — Anthropic API 정가로 환산한 추정치입니다. 구독 요금제 사용분은 청구와 무관하며, 원화는 임시 환율로 계산한 추정치입니다. 집계 수치만 표시합니다(대화 내용·경로·계정 없음).</div>
+      <div id="tk-summary" class="tk-summary"></div>
+      <div class="table-wrap"><table id="tk-sessions" class="tk-table"></table></div>
+      <p id="tk-basis" class="legend"></p>
+    </article>
     <div class="cols">
       <div>
-        <article class="panel"><div class="panel-head"><h2>부서별 상태</h2><span class="tag" id="teams-source">—</span></div><div id="teams" class="teams"></div></article>
+        <article class="panel"><div class="panel-head"><h2>부서별 상태 <span class="tag locked">과거 기록 · TC-00</span></h2><span class="tag" id="teams-source">—</span></div><div id="teams" class="teams"></div></article>
       </div>
       <aside>
         <article class="panel"><div class="panel-head"><h2>미해결 문제</h2><span class="tag warn">물리 모델 전체 PASS 보류</span></div><div id="issues-mini"></div></article>
