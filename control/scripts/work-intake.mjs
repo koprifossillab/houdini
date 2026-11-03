@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import {verifyEvent,digest} from '../lib/work-event.mjs';
 const APP=path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 async function read(p){return JSON.parse(await fs.readFile(p,'utf8'));}
-async function atomic(p,data,mode=0o600){const t=p+'.'+crypto.randomUUID()+'.tmp';const f=await fs.open(t,'wx',mode);try{await f.writeFile(JSON.stringify(data));await f.sync();}finally{await f.close();}await fs.rename(t,p);}
+async function atomic(p,data,mode=0o600){const t=p+'.'+crypto.randomUUID()+'.tmp';const f=await fs.open(t,'wx',mode);try{await f.chmod(mode);await f.writeFile(JSON.stringify(data));await f.sync();}finally{await f.close();}await fs.rename(t,p);}
 async function handoffHead(dir){const h=await read(path.join(dir,'HEAD.json'));if(!/^[a-zA-Z0-9-]+\.json$/.test(h.revision))throw Error('bad handoff revision');const bytes=await fs.readFile(path.join(dir,'history',h.revision));if(digest(bytes)!==h.sha256||JSON.parse(bytes).team_id!=='TC-WORK')throw Error('handoff integrity');return {h,data:JSON.parse(bytes)};}
 export async function intake(root,handoff,key,request){
  const statePath=path.join(root,'private','latest.json');
