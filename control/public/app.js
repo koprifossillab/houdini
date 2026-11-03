@@ -275,6 +275,8 @@ function teamCard(t) {
   const tk = t.tokens || {};
   return h('div', { class: `tl-card ${t.execution.state}` },
     h('div', { class: 'team-head' }, h('h3', { text: t.label }), tag(t.team_id, 'locked')),
+    h('div', { class: `tl-link ${t.link?.level || 'none'}` }, h('b', { text: t.link?.level === 'full' ? '완전 연결' : t.link?.level === 'name_only' ? '팀 이름만 식별 — 완전 연결 아님' : '연결된 세션 없음' }),
+      t.link?.missing?.length ? h('span', { text: `빠진 조건: ${t.link.missing.join(' · ')}` }) : t.link?.level === 'full' ? h('span', { text: '팀 이름 · 팀 시작 폴더 · 담당 팀 인수인계 모두 일치' }) : null),
     t.duty ? h('p', { class: 'duty', text: t.duty }) : null,
     h('div', { class: 'tl-state' }, tag(label, tone), h('b', { text: t.execution.state }), h('span', { class: 'basis', text: t.execution.basis || hint })),
     t.execution.duplicate_live_sessions ? h('div', { class: 'note', text: `같은 팀 이름의 살아 있는 세션 ${t.execution.duplicate_live_sessions + 1}개 — 역할 중복 확인 필요` }) : null,

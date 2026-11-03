@@ -8,7 +8,7 @@
   "shared_paths": ["<shared Houdini repository checkout>"],
   "fresh_s": 600,
   "interval_s": 60,
-  "fx": {"krw_per_usd": 1450, "as_of": "<YYYY-MM-DD>", "basis": "<where the rate comes from>"},
+  "fx": {"krw_per_usd": 1345, "as_of": "2026-11-03", "basis": "총괄 감독 지정 임시 표시값(추정치) — 시장 환율 조회값 아님"},
   "teams": {
     "TC-PROD": {"label": "① TC-PROD 통합 제작팀", "duty": "<current duty>", "name_prefixes": ["TC-PROD"], "start_paths": ["<PROD start folder>"]},
     "TC-QA": {"label": "② TC-QA 독립 검증팀", "duty": "<current duty>", "name_prefixes": ["TC-QA"], "start_paths": ["<QA start folder>"]},

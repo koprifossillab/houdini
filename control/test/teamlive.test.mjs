@@ -42,3 +42,20 @@ test('team live: missing / malformed file -> every team UNKNOWN', async t => {
   assert.ok(v.teams.every(x => x.execution.state === 'UNKNOWN'));
   assert.ok((await teamLiveView(null)).teams.every(x => x.execution.state === 'UNKNOWN'));
 });
+
+test('team live: "full" only with verified start folder AND owner handoff; otherwise name_only with reasons', async t => {
+  const dir = await tmp(t);
+  const d = doc(10);
+  d.teams[1].session = { id: 'bbbbbbbb', name: 'TC-QA-1', binding: 'name_only' };
+  d.teams[1].handoff = { available: true, owner_submitted: true, placeholder: false };
+  await fs.writeFile(path.join(dir, 'team_live.json'), JSON.stringify(d));
+  let v = await teamLiveView(dir);
+  assert.equal(v.teams[0].link.level, 'full');
+  assert.equal(v.teams[1].link.level, 'name_only');
+  assert.deepEqual(v.teams[1].link.missing, ['팀 시작 폴더 미분리']);
+  d.teams[0].handoff.placeholder = true;
+  await fs.writeFile(path.join(dir, 'team_live.json'), JSON.stringify(d));
+  v = await teamLiveView(dir);
+  assert.equal(v.teams[0].link.level, 'name_only');
+  assert.equal(v.teams[2].link.level, 'none');
+});

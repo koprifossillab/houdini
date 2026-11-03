@@ -37,8 +37,16 @@ function team(t, collectorFresh) {
   }
   const s = t.session && typeof t.session === 'object' ? t.session : null;
   const h = t.handoff && typeof t.handoff === 'object' ? t.handoff : {};
+  // connection level: "full" only when the team name, the team start folder AND an owner-submitted (non-placeholder)
+  // handoff all agree; anything less is "name only" with the missing conditions listed.
+  const sessionOk = !!(s && sid(s.id));
+  const missing = [];
+  if (sessionOk && s.binding !== 'verified') missing.push(s.binding === 'conflict' ? '다른 팀 시작 폴더(충돌)' : '팀 시작 폴더 미분리');
+  if (!(h.available && h.owner_submitted && !h.placeholder)) missing.push('담당 팀 실제 인수인계 미등록');
+  const link = !sessionOk ? { level: 'none', label: '연결된 세션 없음', missing } : missing.length ? { level: 'name_only', label: '팀 이름만 식별', missing } : { level: 'full', label: '완전 연결', missing: [] };
   return {
-    team_id: t.team_id, label: clean(t.label, 60) || t.team_id, duty: clean(t.duty, 120) || null,
+    team_id: t.team_id, link,
+    label: clean(t.label, 60) || t.team_id, duty: clean(t.duty, 120) || null,
     execution: { state, basis, reported_state: ex.state, duplicate_live_sessions: count(ex.duplicate_live_sessions) ?? 0 },
     session: s ? { id: sid(s.id), name: name(s.name), kind: clean(s.kind, 20), start: clean(s.start, 40), binding: ['verified', 'name_only', 'conflict'].includes(s.binding) ? s.binding : 'name_only', started_at: iso(s.started_at), last_activity_at: iso(s.last_activity_at), reported_status: clean(s.reported_status, 12) } : null,
     connected_since: iso(t.connected_since),

@@ -168,10 +168,18 @@ def scan_tokens(claude_home, cache):
     """incremental, append-only parse of every transcript; dedupe by message id. Returns list of
     (session_id, project_key, ts, model, speed, tokens) for every NEW message plus updates cache."""
     files = cache.setdefault('files', {})
+    # message ids are deduplicated ACROSS files: a resumed / forked session and some subagent transcripts copy
+    # earlier assistant messages (same id, same usage) into a new file — counting them per file double counts.
+    gseen = set(cache.setdefault('seen', []))
     new = []
     root = os.path.join(claude_home, 'projects')
     paths = glob.glob(os.path.join(root, '*', '*.jsonl')) + glob.glob(os.path.join(root, '*', '*', 'subagents', '*.jsonl'))
-    for p in paths:
+    def mtime(q):
+        try:
+            return os.path.getmtime(q)
+        except OSError:
+            return 0
+    for p in sorted(paths, key=mtime):                 # oldest file first: a copied message stays with its original session
         rel = os.path.relpath(p, root).split(os.sep)
         proj, sid = rel[0], (rel[1][:-6] if len(rel) == 2 else rel[1])
         try:
@@ -180,10 +188,9 @@ def scan_tokens(claude_home, cache):
             continue
         ent = files.get(p)
         if ent is None or st.st_size < ent['offset'] or st.st_ino != ent.get('ino'):
-            ent = files[p] = dict(offset=0, ino=st.st_ino, ids=[], title=None)
+            ent = files[p] = dict(offset=0, ino=st.st_ino, title=None)
         if st.st_size == ent['offset']:
             continue
-        seen = set(ent['ids'])
         with open(p, 'rb') as f:
             f.seek(ent['offset'])
             data = f.read()
@@ -208,9 +215,9 @@ def scan_tokens(claude_home, cache):
             if o.get('type') != 'assistant' or not isinstance(u, dict):
                 continue
             mid = m.get('id') or o.get('requestId') or o.get('uuid')
-            if not mid or mid in seen:
+            if not mid or mid in gseen:
                 continue
-            seen.add(mid); ent['ids'].append(mid)
+            gseen.add(mid); cache['seen'].append(mid)
             try:
                 ts = datetime.fromisoformat(o['timestamp'].replace('Z', '+00:00')).timestamp()
             except (KeyError, ValueError, AttributeError):
@@ -393,7 +400,7 @@ def main():
         tokens[g]['rate'] = dict(tokens_per_min=round(r5['total_tokens'] / 5), output_per_min=round(r5['output'] / 5),
                                  usd_per_hour=round(r5['cost_usd'] * 12, 3), krw_per_hour=round(r5['cost_usd'] * 12 * krw) if krw else None)
     sessions_tok = sorted(({'id': short(s), 'name': state['titles'].get(s), 'team': v['team'], 'houdini': v['proj'] == proj_key,
-                            'first_at': iso(v['first']), 'last_at': iso(v['last']), **finish(v['acc'], krw)} for s, v in per_session.items()),
+                            'first_at': iso(v['first']), 'last_at': iso(v['last']), **finish(v['acc'], krw)} for s, v in per_session.items() if v['proj'] == proj_key),
                           key=lambda x: x['last_at'] or '', reverse=True)[:int(cfg.get('max_sessions', 12))]
 
     # ---- team states + transitions

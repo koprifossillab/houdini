@@ -264,3 +264,11 @@ footer { max-width: 1480px; margin: 0 auto; padding: 14px 32px 28px; display: fl
 @media (max-width: 960px) { .tl-teams, .tk-summary { grid-template-columns: minmax(0, 1fr); } }
 @media (min-width: 961px) and (max-width: 1200px) { .tk-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .tl-row span:first-child { white-space: nowrap; flex: none; }
+.tl-link { border-radius: 8px; padding: 6px 10px; font-size: 12px; display: grid; gap: 2px; border: 1px solid var(--line2); }
+.tl-link b { font-size: 12.5px; }
+.tl-link span { color: var(--muted); font-size: 11.5px; }
+.tl-link.full { border-color: #2a5a4a; background: var(--teal-bg); color: #9fe3cf; }
+.tl-link.name_only { border-color: #5c4520; background: var(--amber-bg); color: var(--amber); }
+.tl-link.none { border-style: dashed; color: var(--muted); }
+.tk-warn { margin: 0 0 12px; border-radius: 8px; }
+.tk-warn { padding: 8px 12px; border: 1px solid #5c4520; }

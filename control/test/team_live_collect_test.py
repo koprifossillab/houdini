@@ -93,6 +93,13 @@ def main():
         # 1 message: 10*4 + 500*20 + 1000*8 + 100000*0.2 = 38040 / 1e6 USD
         check('T1 tokens deduped by message id and priced', tk['requests'] == 1 and tk['output'] == 500 and abs(tk['cost_usd'] - 0.038) < 1e-3 and tk['cost_krw'] == 38, json.dumps(tk))
 
+        # the same message copied into another session file (resume / fork) is counted once
+        with open(os.path.join(e.home, 'projects', 'proj', 'copy-of-p.jsonl'), 'w') as f:
+            f.write(open(os.path.join(e.home, 'projects', 'proj', f'{sid_p}.jsonl')).read())
+        t, d = e.run()
+        check('T1b message copied into another file counted once', d['tokens']['server']['all']['requests'] == 1, str(d['tokens']['server']['all']['requests']))
+        os.remove(os.path.join(e.home, 'projects', 'proj', 'copy-of-p.jsonl'))
+
         # busy but evidence old -> STALE
         e.register(pp.pid, sid_p, 'TC-PROD-T', e.start['TC-PROD'], 'busy', updated=int((time.time() - 3600) * 1000))
         os.utime(os.path.join(e.home, 'projects', 'proj', f'{sid_p}.jsonl'), (time.time() - 3600, time.time() - 3600))
