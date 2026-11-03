@@ -1,0 +1,18 @@
+{
+  "_comment": "Copy outside the repository (e.g. <host>/tc_team_live/config.json) and fill the <...> values. Paths stay private: they are never written to team_live.json.",
+  "claude_home": "<HOME>/.claude",
+  "ledger_root": "<Work continuity workspace>",
+  "out_dir": "<HOME>/tc_team_live/out",
+  "state_dir": "<HOME>/tc_team_live/state",
+  "project_key": "<Claude Code project folder name of the Houdini repository, e.g. -home-<user>-projects-houdini>",
+  "shared_paths": ["<shared Houdini repository checkout>"],
+  "fresh_s": 600,
+  "interval_s": 60,
+  "fx": {"krw_per_usd": 1450, "as_of": "<YYYY-MM-DD>", "basis": "<where the rate comes from>"},
+  "teams": {
+    "TC-PROD": {"label": "① TC-PROD 통합 제작팀", "duty": "<current duty>", "name_prefixes": ["TC-PROD"], "start_paths": ["<PROD start folder>"]},
+    "TC-QA": {"label": "② TC-QA 독립 검증팀", "duty": "<current duty>", "name_prefixes": ["TC-QA"], "start_paths": ["<QA start folder>"]},
+    "TC-WORK": {"label": "③ TC-WORK 제작관리팀", "duty": "<current duty>", "name_prefixes": ["TC-WORK"], "observable": false,
+                "unobservable_basis": "ChatGPT Work 세션은 서버 프로세스가 아니어서 실행 상태를 직접 확인할 수 없음", "start_paths": []}
+  }
+}

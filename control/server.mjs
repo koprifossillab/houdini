@@ -12,6 +12,7 @@ import { ledgerView, ledgerReport, publicLedger } from './lib/ledger.mjs';
 import { mediaItems, mediaResponse, publicMedia } from './lib/media.mjs';
 import { createAuth, parseUsers } from './lib/auth.mjs';
 import { exampleCollector, EXAMPLE_REPORT } from './lib/example.mjs';
+import { teamLiveView } from './lib/teamlive.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PKG = JSON.parse(await fs.readFile(path.join(ROOT, 'package.json'), 'utf8'));
@@ -46,6 +47,8 @@ export function configFromEnv(env = process.env) {
     ledgerDir: env.HPC_LEDGER_DIR || null,
     mediaDir: env.HPC_MEDIA_DIR || null,
     mediaManifest: env.HPC_MEDIA_MANIFEST || null,
+    // team session collector output (team_live.json); unset = the team panel shows 'not connected'
+    teamLiveDir: env.HPC_TEAM_LIVE_DIR || null,
     recordsFile: env.HPC_RECORDS || path.join(ROOT, 'data', 'records.json'),
     authMode: env.HPC_AUTH || 'basic',
     allowOpen: env.HPC_ALLOW_OPEN === '1',
@@ -95,7 +98,7 @@ export function computeState(snap) {
   return { physics, activity, blender_queue, observed_at: snap.generated_at, fresh };
 }
 
-const ROUTES = [[/^\/healthz$/, 'healthz'], [/^\/(?:index\.html)?$/, 'page'], [/^\/static\/[\w.-]+$/, 'static'], [/^\/api\/(session|overview|reports|experiments|media)$/, 'api/$1'], [/^\/api\/reports\/[a-f0-9]{16}$/, 'api/report'], [/^\/media\/[a-z0-9_-]{1,60}$/, 'media']];
+const ROUTES = [[/^\/healthz$/, 'healthz'], [/^\/(?:index\.html)?$/, 'page'], [/^\/static\/[\w.-]+$/, 'static'], [/^\/api\/(session|overview|reports|experiments|media|teams)$/, 'api/$1'], [/^\/api\/reports\/[a-f0-9]{16}$/, 'api/report'], [/^\/media\/[a-z0-9_-]{1,60}$/, 'media']];
 export function routeId(raw) {
   let p = String(raw || '').split('?')[0];
   p = p.replace(/^\/Houdini(?=\/|$)/, '') || '/';
@@ -180,7 +183,8 @@ export function createApp(cfg = configFromEnv()) {
     if (p === '/healthz') {
       const g = await gather();
       const degraded = g.snap.state !== 'live' || g.records.state !== 'ok' || (!cfg.demo && g.ledger.state !== 'ok');
-      return send(req, res, 200, { status: 'ok', service: 'houdini-production-control', version: VERSION, degraded, demo: cfg.demo, sources: { collector: g.snap.state, records: g.records.state, ledger: g.ledger.state, media: g.media.state }, auth: { configured: auth.configured }, tls_required: cfg.requireTls });
+      const tl = cfg.demo ? { state: 'missing' } : await teamLiveView(cfg.teamLiveDir);
+      return send(req, res, 200, { status: 'ok', service: 'houdini-production-control', version: VERSION, degraded, demo: cfg.demo, sources: { collector: g.snap.state, records: g.records.state, ledger: g.ledger.state, media: g.media.state, team_live: tl.state }, auth: { configured: auth.configured }, tls_required: cfg.requireTls });
     }
     // F4: everything else is research information — HTTPS first (no credential challenge over HTTP), then credentials
     if (cfg.requireTls && protoOf(req) !== 'https') return send(req, res, 403, { error: 'HTTPS 로만 열람할 수 있음' });
@@ -203,13 +207,18 @@ export function createApp(cfg = configFromEnv()) {
         records: g.records,
         ledger: { state: g.ledger.state, message: g.ledger.message, experiments: g.ledger.experiments.length, tracked: g.ledger.totals?.tracked ?? null, revision: g.ledger.revision },
         sources: [
-          { key: 'collector', label: '1분 수집기', provenance: g.snap.provenance, state: g.snap.state, detail: g.snap.message, observed_at: g.snap.generated_at, age_s: g.snap.age_s },
+          { key: 'team_live', label: '팀 세션 수집기', provenance: 'collected', ...(await teamLiveView(cfg.demo ? null : cfg.teamLiveDir).then(v => ({ state: v.state, detail: v.message, observed_at: v.generated_at || null, age_s: v.age_s ?? null }))) },
+          { key: 'collector', label: '1분 수집기 (TC-00 과거 기록)', provenance: g.snap.provenance, state: g.snap.state, detail: g.snap.message, observed_at: g.snap.generated_at, age_s: g.snap.age_s },
           { key: 'records', label: '승인·진단 기록', provenance: 'recorded', state: g.records.state, detail: g.records.state === 'ok' ? '손으로 옮긴 기록 — 자동 판정 아님' : g.records.message, observed_at: g.records.recorded_at || null },
           { key: 'ledger', label: '제작 저장소 manifest', provenance: 'repository', state: g.ledger.state, detail: g.ledger.message, observed_at: null },
           { key: 'media', label: '미리보기 미디어', provenance: 'manifest', state: g.media.state, detail: g.media.state === 'ok' ? `${g.media.items.filter(m => m.present).length}/${g.media.items.length}개 파일 확인` : '미디어 목록이 설정되지 않음', observed_at: null },
           { key: 'reports', label: '보고서 사본', provenance: 'collected', state: missingCopies ? 'partial' : reports.length ? 'ok' : 'missing', detail: missingCopies ? `${missingCopies}건은 수집기 사본이 없음 — 저장소 사본으로 대체하거나 열람 불가` : `${reports.length}건`, observed_at: null },
         ],
       });
+    }
+    if (p === '/api/teams') {
+      if (cfg.demo) return send(req, res, 200, { ...(await teamLiveView(null)), mode: 'example' });
+      return send(req, res, 200, { served_at: new Date().toISOString(), ...(await teamLiveView(cfg.teamLiveDir)) });
     }
     if (p === '/api/reports') {
       const g = await gather();

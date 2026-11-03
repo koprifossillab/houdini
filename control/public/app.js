@@ -254,6 +254,103 @@ async function renderLab() {
   }
 }
 
+
+// ---- team live panel (2026-11-03): execution state comes only from the team session collector ----
+const EXEC = {
+  RUNNING: ['실행 중', 'good', '최근 실행 증거 있음'], IDLE: ['대기', 'info', '연결된 세션이 입력 대기'],
+  STOPPED: ['종료', 'warn', '세션 종료 확인'], STALE: ['오래됨', 'warn', '신선한 증거 없음'], UNKNOWN: ['미확인', 'locked', '확인 불가'],
+};
+const BINDING = { verified: ['팀 시작 폴더 일치', 'good'], name_only: ['이름으로만 연결 · 시작 폴더 미분리', 'warn'], conflict: ['다른 팀 시작 폴더 — 충돌', 'bad'] };
+const DECISION = s => (!s || s.state === 'unknown' ? ['기록 없음', 'locked'] : /PASS|complete|approved/i.test(s.state) ? [s.state, 'good'] : /FAIL|failed|rejected/i.test(s.state) ? [s.state, 'bad'] : [s.state, 'warn']);
+const int = new Intl.NumberFormat('ko-KR');
+const usd = v => (v === null || v === undefined ? '—' : `$${v < 10 ? v.toFixed(3) : int.format(Math.round(v * 100) / 100)}`);
+const krw = v => (v === null || v === undefined ? '—' : `₩${int.format(Math.round(v))}`);
+const tokFmt = v => (v === null || v === undefined ? '—' : v >= 1e9 ? `${(v / 1e9).toFixed(2)}B` : v >= 1e6 ? `${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(1)}K` : String(v));
+const row = (k, v) => h('div', { class: 'tl-row' }, h('span', { text: k }), h('span', { text: v ?? '—' }));
+let teamLive = null, teamLiveOk = 0;
+
+function teamCard(t) {
+  const [label, tone, hint] = EXEC[t.execution.state] || EXEC.UNKNOWN;
+  const s = t.session, hd = t.handoff || {}, pv = t.previous_session;
+  const tk = t.tokens || {};
+  return h('div', { class: `tl-card ${t.execution.state}` },
+    h('div', { class: 'team-head' }, h('h3', { text: t.label }), tag(t.team_id, 'locked')),
+    t.duty ? h('p', { class: 'duty', text: t.duty }) : null,
+    h('div', { class: 'tl-state' }, tag(label, tone), h('b', { text: t.execution.state }), h('span', { class: 'basis', text: t.execution.basis || hint })),
+    t.execution.duplicate_live_sessions ? h('div', { class: 'note', text: `같은 팀 이름의 살아 있는 세션 ${t.execution.duplicate_live_sessions + 1}개 — 역할 중복 확인 필요` }) : null,
+    h('div', { class: 'tl-sec' }, h('small', { text: '연결된 세션' }),
+      s ? [row('세션', `${s.name || '이름 없음'} · ${s.id}`), row('시작', kst(s.started_at)), row('마지막 활동', kst(s.last_activity_at)), row('연결 방식', s.start),
+        h('div', {}, tag(...(BINDING[s.binding] || BINDING.name_only)))]
+        : [row('세션', '연결된 살아 있는 세션 없음')],
+      pv ? row('이전 세션', `${pv.name || '이름 없음'} · ${pv.id || '—'}${pv.stopped_at ? ` · 종료 ${kst(pv.stopped_at)}` : ''}`) : null),
+    h('div', { class: 'tl-sec' }, h('small', { text: '마지막 인수인계 (팀 영구 기록)' }),
+      hd.available ? [
+        hd.placeholder ? h('div', { class: 'note', text: '담당 팀이 아직 실제 인수인계를 제출하지 않음 — 초기 자리표시 기록' }) : null,
+        row('기록 시각', kst(hd.recorded_at)), row('작업', hd.task_id), row('커밋', hd.commit || '기록 없음'),
+        h('div', { class: 'ev', text: `상태: ${hd.last_confirmed_state || '—'}` }),
+        hd.next?.length ? h('ol', { class: 'tl-next' }, ...hd.next.map(x => h('li', { text: x }))) : row('다음 작업', '기록 없음'),
+      ] : [row('기록', hd.label || '없음')]),
+    h('div', { class: 'tl-sec' }, h('small', { text: '판정 구분 — 서로 대신하지 않음' }),
+      ...[['기술 완료', hd.technical_completion], ['물리 독립 검증', hd.independent_physics], ['감독 승인', hd.director_decision]].map(([k, d]) => {
+        const [lab, tn] = DECISION(d); return h('div', { class: 'tl-row' }, h('span', { text: k }), tag(lab, tn));
+      })),
+    h('div', { class: 'tl-sec' }, h('small', { text: '토큰 · API 단가 환산' }),
+      row('오늘(KST)', `${tokFmt(tk.today_kst?.total_tokens)} · ${usd(tk.today_kst?.cost_usd)} · ${krw(tk.today_kst?.cost_krw)}`),
+      row('최근 5분', `${tokFmt(tk.last_5m?.total_tokens)} · ${usd(tk.last_5m?.cost_usd)}`),
+      row('누적', `${tokFmt(tk.all?.total_tokens)} · ${usd(tk.all?.cost_usd)} · ${krw(tk.all?.cost_krw)}`)));
+}
+
+function tile(title, w, rate, extra) {
+  return h('div', { class: 'tk-tile' }, h('small', { text: title }), h('b', { text: tokFmt(w?.total_tokens) }),
+    h('span', { text: `${usd(w?.cost_usd)} · ${krw(w?.cost_krw)}` }),
+    h('span', { text: `출력 ${tokFmt(w?.output)} · 캐시 읽기 ${tokFmt(w?.cache_read)} · 요청 ${int.format(w?.requests ?? 0)}` }),
+    rate ? h('span', { text: `현재 속도 ${tokFmt(rate.tokens_per_min)}/분 · ${usd(rate.usd_per_hour)}/시간 · ${krw(rate.krw_per_hour)}/시간` }) : null, extra || null);
+}
+
+function renderTeamLive(v, offline) {
+  let st = v?.state || 'missing';
+  let age = v?.generated_at ? Math.max(0, Math.floor((Date.now() - Date.parse(v.generated_at)) / 1000)) : null;
+  if (st === 'live' && age > STALE_S) st = 'stale';
+  if (offline) st = 'offline';
+  const [label, tone] = FEED[st] || ['확인 불가', 'warn'];
+  $('tl-feed').textContent = st === 'live' ? '팀 세션 수집 정상' : label; $('tl-feed').className = `pill ${tone}`;
+  $('tl-age').textContent = v?.generated_at ? `수집 ${kstTime(v.generated_at)} KST · ${ago(age)}` : '수집 시각 없음';
+  if (!v) return;
+  const teams = v.teams.map(t => (st === 'live' || !['RUNNING', 'IDLE'].includes(t.execution.state) ? t : { ...t, execution: { ...t.execution, state: 'STALE', basis: '화면이 받은 자료가 최신이 아님 — 지금 상태 확인 불가' } }));
+  $('tl-teams').replaceChildren(...teams.map(teamCard));
+  $('tl-notes').replaceChildren(...[
+    tag(`사용자 PC Houdini: 미확인 — ${v.pc_houdini?.basis || '연결 없음'}`, 'locked'),
+    v.unbound_live_sessions ? tag(`팀 이름이 없는 살아 있는 Claude 세션 ${v.unbound_live_sessions}개 — 어느 팀에도 표시하지 않음`, 'warn') : null,
+    tag(`수집기: ${v.message || '—'}`, st === 'live' ? 'good' : 'warn')].filter(Boolean));
+  const EV = { connected: '세션 연결', stopped: '세션 종료', state: '상태 변경' };
+  $('tl-events').replaceChildren(...(v.events || []).slice().reverse().map(e => h('li', { class: e.event === 'stopped' ? 'hold' : 'info' },
+    h('div', { class: 'row' }, h('b', { text: `${e.team} · ${EV[e.event]}` }), h('span', { class: 'mono muted', text: kst(e.at) })),
+    h('small', { text: [e.name, e.session, e.from && e.to ? `${e.from} → ${e.to}` : null, e.basis].filter(Boolean).join(' · ') }))));
+  if (!v.events?.length) $('tl-events').replaceChildren(h('li', {}, h('small', { text: '기록 없음' })));
+  const tk = v.tokens || {};
+  $('tk-scope').textContent = tk.scope || '—';
+  $('tk-summary').replaceChildren(
+    tile('Houdini 프로젝트 · 오늘(KST)', tk.houdini?.today_kst, tk.houdini_rate),
+    tile('Houdini 프로젝트 · 누적', tk.houdini?.all, null, tk.unassigned_houdini?.all?.total_tokens ? h('span', { text: `팀 이름 없는 과거 세션 몫 ${tokFmt(tk.unassigned_houdini.all.total_tokens)} · ${usd(tk.unassigned_houdini.all.cost_usd)}` }) : null),
+    tile('서버 전체 Claude Code · 오늘(KST)', tk.server?.today_kst, tk.server_rate),
+    tile('서버 전체 Claude Code · 누적', tk.server?.all));
+  const sess = tk.sessions || [];
+  $('tk-sessions').replaceChildren(
+    h('thead', {}, h('tr', {}, ...['세션', '팀', '마지막 활동', '토큰', '출력', 'USD', 'KRW'].map((x, i) => h('th', { class: i >= 3 ? 'num' : null, text: x })))),
+    h('tbody', {}, ...sess.map(s => h('tr', {}, h('td', { text: `${s.name || '이름 없음'} · ${s.id}${s.houdini ? '' : ' (다른 프로젝트)'}` }), h('td', { text: s.team || '—' }),
+      h('td', { class: 'mono', text: kst(s.last_at) }), h('td', { class: 'num', text: tokFmt(s.total_tokens) }), h('td', { class: 'num', text: tokFmt(s.output) }),
+      h('td', { class: 'num', text: usd(s.cost_usd) }), h('td', { class: 'num', text: krw(s.cost_krw) })))));
+  const pr = tk.pricing || {}, fx = tk.fx || {};
+  const tbl = Object.entries(pr.table || {}).map(([m, p]) => `${m}: 입력 $${p.input} · 출력 $${p.output} · 캐시 쓰기 $${p.cache_write_5m}(5분)/$${p.cache_write_1h}(1시간) · 캐시 읽기 $${p.cache_read} /백만 토큰`).join(' | ');
+  $('tk-basis').replaceChildren(h('span', { text: `${pr.basis || ''} · 단가 확인 ${pr.checked || '—'} · fast 모드 ${pr.fast_mode || '—'} · ${tbl}` }),
+    h('span', { text: `원화 환산: 1 USD = ₩${fx.krw_per_usd ? int.format(fx.krw_per_usd) : '—'} (${fx.as_of || '—'}) — ${fx.basis || '환율 기준 없음'}` }));
+}
+
+async function refreshTeamLive() {
+  try { teamLive = await getJson('api/teams'); teamLiveOk = Date.now(); renderTeamLive(teamLive, false); }
+  catch { renderTeamLive(teamLive, true); }
+}
+
 async function refresh() {
   try {
     overview = await getJson('api/overview');
@@ -293,6 +390,8 @@ async function init() {
   renderReports();
   renderLab();
   renderMedia();
+  await refreshTeamLive();
+  setInterval(refreshTeamLive, 15000);
   setInterval(refresh, 30000);
   setInterval(renderClock, 1000);
 }
