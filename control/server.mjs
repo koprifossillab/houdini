@@ -30,6 +30,7 @@ const SECURITY = {
 };
 const ASSETS = {
   '/static/team-clock.js': ['team-clock.js', 'text/javascript; charset=utf-8'],
+  '/static/work-clock.js': ['work-clock.js', 'text/javascript; charset=utf-8'],
   '/static/scene-review.js': ['scene-review.js', 'text/javascript; charset=utf-8'],
   '/static/scene-review.json': ['scene-review.json', 'application/json; charset=utf-8'],
   '/': ['index.html', 'text/html; charset=utf-8'],
