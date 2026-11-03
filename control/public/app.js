@@ -279,6 +279,15 @@ function teamCard(t) {
     h('div', { class: `tl-link ${t.link?.level || 'none'}` }, h('b', { text: t.link?.level === 'full' ? '완전 연결' : t.link?.level === 'name_only' ? '팀 이름만 식별 — 완전 연결 아님' : '연결된 세션 없음' }),
       t.link?.missing?.length ? h('span', { text: `빠진 조건: ${t.link.missing.join(' · ')}` }) : t.link?.level === 'full' ? h('span', { text: '팀 이름 · 팀 시작 폴더 · 담당 팀 인수인계 모두 일치' }) : null),
     t.duty ? h('p', { class: 'duty', text: t.duty }) : null,
+    t.team_id==='TC-WORK'?h('div',{class:'tl-sec'},h('small',{text:'Work 작업 기록 · 서버 실행 상태와 별개'}),
+      h('b',{id:'work-activity-label',text:t.work_activity?.label||'활동 미확인'}),
+      h('p',{id:'work-activity-age',class:'muted',text:'기록 시각 미확인'}),
+      h('p',{text:t.work_activity?.basis||'서명된 기록 미수신'}),
+      row('현재 작업',t.work_activity?.task_id||'미확인'),row('작업 기록',t.work_activity?.summary||'미확인'),
+      row('코드 커밋',t.work_activity?.commit||'미확인'),
+      h('ul',{},...(t.work_activity?.artifacts||[]).map(a=>h('li',{text:`${a.label} · SHA256 ${a.sha256}`}))),
+      h('ol',{},...(t.work_activity?.next||[]).map(n=>h('li',{text:n}))),
+      h('p',{text:'최근 15분의 서명된 기록 기준 · 갑작스러운 세션 종료는 직접 감지하지 못하며 오래되면 활동 미확인'})) : null,
     h('div', { class: 'tl-state' }, tag(label, tone), h('b', { id:`tl-state-${t.team_id}`, text: t.execution.state }), h('span', { id:`tl-basis-${t.team_id}`, class: 'basis', text: t.execution.basis || hint })),
     h('div',{class:'tl-sec'}, timedRow('elapsed','세션 경과 (HH:MM)'),timedRow('duration-basis','경과 시간 기준'),timedRow('activity','마지막 활동 이후'),timedRow('process','프로세스 생존'),timedRow('recent','최근 활동 근거'),timedRow('collected','마지막 서버 수집')),
     t.execution.duplicate_live_sessions ? h('div', { class: 'note', text: `같은 팀 이름의 살아 있는 세션 ${t.execution.duplicate_live_sessions + 1}개 — 역할 중복 확인 필요` }) : null,
@@ -360,6 +369,13 @@ function tickTeamTimers() {
     const code=$(`tl-state-${t.team_id}`);if(code){code.textContent=m.state;const badge=code.previousElementSibling;if(badge){const [label,tone]=EXEC[m.state]||EXEC.UNKNOWN;badge.textContent=label;badge.className=`tag ${tone}`;}}
     const basis=$(`tl-basis-${t.team_id}`);
     if(basis)basis.textContent=!m.fresh?'서버 수집 갱신 지연 · 현재 작업 진행 미확인':m.state==='STALE'&&t.execution.process_alive===true?'프로세스 생존 · 최근 활동 미확인':t.execution.basis;
+  }
+  const w=teamLive.teams.find(t=>t.team_id==='TC-WORK')?.work_activity;
+  if($('work-activity-label')){
+    const age=w?.verified?Math.floor((Date.now()-Date.parse(w.occurred_at))/1000):null;
+    const fresh=!teamLiveOffline&&age!==null&&age>=-30&&age<=900;
+    $('work-activity-label').textContent=!fresh?'활동 미확인':w.event_type==='complete'?'작업 완료':'최근 활동 확인';
+    $('work-activity-age').textContent=w?.verified?`Work 기록 ${kst(w.occurred_at)} · ${TCTeamClock.format(Math.max(0,age))} 전 · ${w.last_result}`:'검증된 Work 기록 없음';
   }
   const age=TCTeamClock.measure({execution:{}},teamLive).collectorAgeSeconds;
   $('tl-age').textContent=`서버 수집 ${kstTime(teamLive.generated_at)} KST · ${TCTeamClock.format(age)} 전`;

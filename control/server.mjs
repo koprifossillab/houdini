@@ -13,6 +13,7 @@ import { mediaItems, mediaResponse, publicMedia } from './lib/media.mjs';
 import { createAuth, parseUsers } from './lib/auth.mjs';
 import { exampleCollector, EXAMPLE_REPORT } from './lib/example.mjs';
 import { teamLiveView } from './lib/teamlive.mjs';
+import { attachWorkActivity } from './lib/workactivity.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PKG = JSON.parse(await fs.readFile(path.join(ROOT, 'package.json'), 'utf8'));
@@ -50,6 +51,7 @@ export function configFromEnv(env = process.env) {
     mediaManifest: env.HPC_MEDIA_MANIFEST || null,
     // team session collector output (team_live.json); unset = the team panel shows 'not connected'
     teamLiveDir: env.HPC_TEAM_LIVE_DIR || null,
+    workActivityDir: env.HPC_WORK_ACTIVITY_DIR || null,
     recordsFile: env.HPC_RECORDS || path.join(ROOT, 'data', 'records.json'),
     authMode: env.HPC_AUTH || 'basic',
     allowOpen: env.HPC_ALLOW_OPEN === '1',
@@ -219,7 +221,7 @@ export function createApp(cfg = configFromEnv()) {
     }
     if (p === '/api/teams') {
       if (cfg.demo) return send(req, res, 200, { ...(await teamLiveView(null)), mode: 'example' });
-      return send(req, res, 200, { served_at: new Date().toISOString(), ...(await teamLiveView(cfg.teamLiveDir)) });
+      return send(req, res, 200, { served_at: new Date().toISOString(), ...(await attachWorkActivity(await teamLiveView(cfg.teamLiveDir), cfg.workActivityDir, path.join(ROOT,'data','work-public.pem'))) });
     }
     if (p === '/api/reports') {
       const g = await gather();
