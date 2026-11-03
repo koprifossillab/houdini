@@ -37,6 +37,13 @@ export async function intake(root,handoff,key,request){
   await atomic(path.join(handoff,'HEAD.json'),{revision,sha256:digest(bytes)});
  }
  await atomic(statePath,request.envelope);
+ if(p.event_type==='start')await atomic(path.join(root,'out','task-start.json'),request.envelope,0o644);
+ if(p.event_type==='complete'){
+  await atomic(path.join(root,'out','last-complete.json'),request.envelope,0o644);
+  try{const start=await read(path.join(root,'out','task-start.json'));const sp=verifyEvent(start,key).payload;
+   if(sp.task_id===p.task_id&&sp.sequence<p.sequence)await atomic(path.join(root,'out','last-complete-start.json'),start,0o644);
+  }catch{/* no duration without verified start */}
+ }
  await atomic(path.join(root,'out','latest.json'),request.envelope,0o644);
  return {accepted:true,duplicate,sequence:p.sequence,event_hash:verified.hash};
 }

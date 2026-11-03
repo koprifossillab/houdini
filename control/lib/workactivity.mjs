@@ -9,6 +9,14 @@ export async function attachWorkActivity(view,dir,keyfile,now=Date.now()){
   activity={...activityStatus(p,now),verified:true,basis:'로컬 Work 서명 검증 · SSH로 제출된 작업 기록 (프로세스 관측 아님)',
    task_id:p.task_id,event_type:p.event_type,occurred_at:p.occurred_at,summary:p.summary,commit:p.commit,next:p.next,artifacts:p.artifacts,validation:p.validation,sequence:p.sequence,
    last_result:p.event_type==='complete'?'작업 완료 기록':'진행 기록'};
+  async function evidence(name){try{const b=await fs.readFile(path.join(dir,name),'utf8');if(b.length>40000)throw Error('large');return verifyEvent(JSON.parse(b),key).payload;}catch{return null;}}
+  let done=p.event_type==='complete'?p:await evidence('last-complete.json');
+  if(done&&(done.event_type!=='complete'||done.sequence>p.sequence))done=null;
+  const start=await evidence(p.event_type==='complete'?'task-start.json':'last-complete-start.json');
+  const validPair=done&&start&&start.event_type==='start'&&start.task_id===done.task_id&&start.sequence<done.sequence&&Date.parse(start.occurred_at)<=Date.parse(done.occurred_at);
+  activity.last_completion=done?{task_id:done.task_id,occurred_at:done.occurred_at,summary:done.summary,sequence:done.sequence,
+   started_at:validPair?start.occurred_at:null,duration_s:validPair?Math.floor((Date.parse(done.occurred_at)-Date.parse(start.occurred_at))/1000):null}:null;
+
  }catch{activity={state:'UNCONFIRMED',label:'활동 미확인',verified:false,basis:'Work 기록 누락 또는 서명·형식 검증 실패'};}
  return {...view,teams:view.teams.map(t=>t.team_id!=='TC-WORK'?t:{...t,work_activity:activity,
   execution:{...t.execution,state:'UNKNOWN',process_alive:null,observed_process_alive:null,basis:'Work는 서명된 작업 기록으로 연결 · 서버 프로세스 관측 대상 아님'}})};

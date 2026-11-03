@@ -20,7 +20,7 @@ export function verifyEvent(envelope,key){
 }
 export function activityStatus(payload,now=Date.now()){
  const age=Math.floor((now-Date.parse(payload.occurred_at))/1000),fresh=age>=-30&&age<=900;
- return {state:!fresh?'UNCONFIRMED':payload.event_type==='complete'?'COMPLETED':'RECENT_ACTIVITY',
- label:!fresh?'활동 미확인':payload.event_type==='complete'?'작업 완료':'최근 활동 확인',
+ return {state:payload.event_type==='complete'?'COMPLETED':!fresh?'UNCONFIRMED':'RECENT_ACTIVITY',
+ label:payload.event_type==='complete'?'마지막 작업 완료':!fresh?'활동 미확인':'최근 활동 확인',
  age_s:Math.max(0,age),fresh,completed:payload.event_type==='complete',fresh_window_s:900};
 }

@@ -36,10 +36,26 @@ test('replay, out-of-order, stale timestamp and stale handoff are rejected',asyn
 test('start progress complete and expiry retain historical completion without claiming RUNNING',async t=>{
  const {root,ledger,sha}=await setup(t);let p=payload({handoff_sha256:sha});await intake(root,ledger,keys.publicKey,{command:'submit',envelope:envelope(p)});
  for(const type of ['progress','complete']){const head=await intake(root,ledger,keys.publicKey,{command:'status'});p={...p,event_id:crypto.randomUUID(),sequence:p.sequence+1,previous_hash:digest(Buffer.from(envelope(p).payload_b64,'base64')),event_type:type,handoff_sha256:head.handoff_sha256,artifacts:type==='complete'?[{id:'TEST',label:'검수 증거',sha256:'c'.repeat(64)}]:[]};await intake(root,ledger,keys.publicKey,{command:'submit',envelope:envelope(p)});}
- assert.equal(activityStatus(p).state,'COMPLETED');const late=activityStatus(p,Date.now()+901000);assert.equal(late.state,'UNCONFIRMED');assert.equal(late.completed,true);
+ assert.equal(activityStatus(p).state,'COMPLETED');const late=activityStatus(p,Date.now()+901000);assert.equal(late.state,'COMPLETED');assert.equal(late.completed,true);
  const keyfile=path.join(root,'public.pem');await fs.writeFile(keyfile,keys.publicKey.export({type:'spki',format:'pem'}));
  const prod={team_id:'TC-PROD',execution:{state:'RUNNING'}},qa={team_id:'TC-QA',execution:{state:'IDLE'}};
  const result=await attachWorkActivity({teams:[prod,qa,{team_id:'TC-WORK',execution:{state:'UNKNOWN'}}]},path.join(root,'out'),keyfile);
- assert.deepEqual(result.teams[0],prod);assert.deepEqual(result.teams[1],qa);assert.equal(result.teams[2].execution.state,'UNKNOWN');assert.equal(result.teams[2].work_activity.label,'작업 완료');
+ assert.deepEqual(result.teams[0],prod);assert.deepEqual(result.teams[1],qa);assert.equal(result.teams[2].execution.state,'UNKNOWN');assert.equal(result.teams[2].work_activity.label,'마지막 작업 완료');
  await fs.writeFile(path.join(root,'out/latest.json'),'{}');const bad=await attachWorkActivity({teams:[prod,qa,{team_id:'TC-WORK'}]},path.join(root,'out'),keyfile);assert.equal(bad.teams[2].work_activity.state,'UNCONFIRMED');
+});
+
+test('completion survives stale records and later task; verified timing requires matching start',async t=>{
+ const {root,ledger,sha}=await setup(t);const started=new Date(Date.now()-2000).toISOString();
+ let p=payload({handoff_sha256:sha,occurred_at:started});await intake(root,ledger,keys.publicKey,{command:'submit',envelope:envelope(p)});
+ const head=await intake(root,ledger,keys.publicKey,{command:'status'});
+ p={...p,event_id:crypto.randomUUID(),sequence:2,previous_hash:digest(Buffer.from(envelope(p).payload_b64,'base64')),event_type:'complete',occurred_at:new Date().toISOString(),handoff_sha256:head.handoff_sha256,artifacts:[{id:'DONE',label:'완료 증거',sha256:'c'.repeat(64)}]};
+ await intake(root,ledger,keys.publicKey,{command:'submit',envelope:envelope(p)});
+ const keyfile=path.join(root,'public.pem');await fs.writeFile(keyfile,keys.publicKey.export({type:'spki',format:'pem'}));
+ const view={teams:[{team_id:'TC-WORK',execution:{state:'UNKNOWN'}}]};
+ const load=async()=> (await attachWorkActivity(view,path.join(root,'out'),keyfile,Date.now()+3600000)).teams[0].work_activity;
+ assert.equal((await load()).last_completion.duration_s,2);
+ const h2=await intake(root,ledger,keys.publicKey,{command:'status'});
+ p={...p,event_id:crypto.randomUUID(),task_id:'NEW-TASK',sequence:3,previous_hash:digest(Buffer.from(envelope(p).payload_b64,'base64')),event_type:'start',handoff_sha256:h2.handoff_sha256};await intake(root,ledger,keys.publicKey,{command:'submit',envelope:envelope(p)});
+ assert.equal((await load()).last_completion.task_id,'TC-WORK-TEST');assert.equal((await load()).last_completion.duration_s,2);
+ await fs.writeFile(path.join(root,'out/last-complete-start.json'),'{}');assert.equal((await load()).last_completion.duration_s,null);
 });
