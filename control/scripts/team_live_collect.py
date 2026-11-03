@@ -36,7 +36,7 @@ PRICES = {
     'claude-opus-5-5': dict(input=4.0, output=20.0, cache_read=0.20),
     'claude-opus-5': dict(input=5.0, output=25.0, cache_read=0.50),
     'claude-opus-4-8': dict(input=5.0, output=25.0, cache_read=0.50),
-    'claude-sonnet-5-5': dict(input=2.0, output=10.0, cache_read=0.20),
+    'claude-sonnet-5-5': dict(input=2.0, output=10.0, cache_read=0.10),
     'claude-sonnet-5': dict(input=2.0, output=10.0, cache_read=0.20),
     'claude-haiku-5-5': dict(input=0.10, output=0.50, cache_read=0.01),
     'claude-fable-5-1': dict(input=10.0, output=50.0, cache_read=0.25),
@@ -108,10 +108,21 @@ def start_class(cwd, team, cfg):
     return 'other'
 
 
-def transcript_index(claude_home):
+def transcript_paths(claude_home, allowed_project_keys=None):
+    root = os.path.join(claude_home, 'projects')
+    if allowed_project_keys is None:
+        keys = ['*']
+    else:
+        keys = allowed_project_keys
+        if not keys or any(not isinstance(k, str) or not re.fullmatch(r'[A-Za-z0-9_.-]+', k) or k in ('.', '..') for k in keys):
+            raise ValueError('invalid approved project keys')
+    return [p for key in keys for pattern in (os.path.join(root,key,'*.jsonl'), os.path.join(root,key,'*','subagents','*.jsonl')) for p in glob.glob(pattern)]
+
+
+def transcript_index(claude_home, allowed_project_keys=None):
     """sessionId -> list of transcript files (main + subagents)"""
     idx = {}
-    for p in glob.glob(os.path.join(claude_home, 'projects', '*', '*.jsonl')) + glob.glob(os.path.join(claude_home, 'projects', '*', '*', 'subagents', '*.jsonl')):
+    for p in transcript_paths(claude_home, allowed_project_keys):
         rel = os.path.relpath(p, os.path.join(claude_home, 'projects')).split(os.sep)
         sid = rel[1][:-6] if len(rel) == 2 else rel[1]
         idx.setdefault(sid, []).append(p)
@@ -125,6 +136,11 @@ def live_sessions(cfg, now, tindex):
             d = read_json(f, 64 << 10)
         except (OSError, ValueError):
             continue
+        if cfg.get('allowed_session_paths') is not None:
+            cwd = os.path.realpath(d.get('cwd')) if isinstance(d.get('cwd'),str) else None
+            approved = [os.path.realpath(p) for p in cfg['allowed_session_paths']]
+            if not cwd or not any(cwd == p or cwd.startswith(p + os.sep) for p in approved):
+                continue
         sid, pid = d.get('sessionId'), d.get('pid')
         if not short(sid) or not isinstance(pid, int):
             continue
@@ -164,7 +180,7 @@ def cost_of(model, speed, t):
                 + t['cache_write_1h'] * p['input'] * 2.0 + t['cache_read'] * p['cache_read']) / 1e6
 
 
-def scan_tokens(claude_home, cache):
+def scan_tokens(claude_home, cache, allowed_project_keys=None):
     """incremental, append-only parse of every transcript; dedupe by message id. Returns list of
     (session_id, project_key, ts, model, speed, tokens) for every NEW message plus updates cache."""
     files = cache.setdefault('files', {})
@@ -173,7 +189,7 @@ def scan_tokens(claude_home, cache):
     gseen = set(cache.setdefault('seen', []))
     new = []
     root = os.path.join(claude_home, 'projects')
-    paths = glob.glob(os.path.join(root, '*', '*.jsonl')) + glob.glob(os.path.join(root, '*', '*', 'subagents', '*.jsonl'))
+    paths = transcript_paths(claude_home, allowed_project_keys)
     def mtime(q):
         try:
             return os.path.getmtime(q)
@@ -358,11 +374,15 @@ def main():
     except (OSError, ValueError):
         tcache = dict(files={}, msgs=[])
 
-    tindex = transcript_index(cfg['claude_home'])
+    allowed_keys = cfg.get('allowed_project_keys')
+    scope_key = json.dumps(allowed_keys, sort_keys=True)
+    if tcache.get('scope_key') != scope_key:
+        tcache = dict(files={}, msgs=[], scope_key=scope_key)
+    tindex = transcript_index(cfg['claude_home'], allowed_keys)
     sess = live_sessions(cfg, now, tindex)
 
     # ---- tokens (incremental). msgs: compact rows [sid, proj, ts, model, speed, in, out, w5, w1, rd]
-    for sid, proj, ts, model, speed, t in scan_tokens(cfg['claude_home'], tcache):
+    for sid, proj, ts, model, speed, t in scan_tokens(cfg['claude_home'], tcache, allowed_keys):
         tcache['msgs'].append([sid, proj, round(ts, 1), model, speed] + [t[k] for k in TOKEN_KEYS])
     titles = {e.get('sid'): e.get('title') for e in tcache['files'].values() if e.get('title')}
     for s in sess:
@@ -371,6 +391,7 @@ def main():
     state['titles'].update({k: v for k, v in titles.items() if k})
     sid_team = {sid: team_of_name(n, cfg) for sid, n in state['titles'].items()}
 
+    project_keys = cfg.get('houdini_project_keys') or [cfg.get('project_key')]
     proj_key = cfg.get('project_key')          # Claude Code project folder name of the Houdini repository (config only)
     day0 = datetime.fromtimestamp(now, KST).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
     windows = dict(last_5m=now - 300, last_60m=now - 3600, today_kst=day0, all=0)
@@ -381,7 +402,7 @@ def main():
         t = dict(zip(TOKEN_KEYS, vals))
         groups = ['server']
         team = sid_team.get(sid)
-        if proj == proj_key:
+        if proj in project_keys:
             groups.append('houdini')
             groups.append(team if team else 'unassigned_houdini')
         elif team:
@@ -399,8 +420,8 @@ def main():
         r5 = tokens[g]['last_5m']
         tokens[g]['rate'] = dict(tokens_per_min=round(r5['total_tokens'] / 5), output_per_min=round(r5['output'] / 5),
                                  usd_per_hour=round(r5['cost_usd'] * 12, 3), krw_per_hour=round(r5['cost_usd'] * 12 * krw) if krw else None)
-    sessions_tok = sorted(({'id': short(s), 'name': state['titles'].get(s), 'team': v['team'], 'houdini': v['proj'] == proj_key,
-                            'first_at': iso(v['first']), 'last_at': iso(v['last']), **finish(v['acc'], krw)} for s, v in per_session.items() if v['proj'] == proj_key),
+    sessions_tok = sorted(({'id': short(s), 'name': state['titles'].get(s), 'team': v['team'], 'houdini': v['proj'] in project_keys,
+                            'first_at': iso(v['first']), 'last_at': iso(v['last']), **finish(v['acc'], krw)} for s, v in per_session.items() if v['proj'] in project_keys),
                           key=lambda x: x['last_at'] or '', reverse=True)[:int(cfg.get('max_sessions', 12))]
 
     # ---- team states + transitions
@@ -466,7 +487,7 @@ def main():
                                         table={m: dict(p, cache_write_5m=round(p['input'] * 1.25, 3), cache_write_1h=p['input'] * 2) for m, p in PRICES.items() if m in models},
                                         fast_mode='2배'),
                            fx=dict(krw_per_usd=krw, basis=cfg.get('fx', {}).get('basis'), as_of=cfg.get('fx', {}).get('as_of')),
-                           scope='이 서버의 Claude Code 기록만 집계 (ChatGPT Work · 다른 PC 세션 제외)'))
+                           scope=cfg.get('scope_label', '이 서버의 Claude Code 기록만 집계 (ChatGPT Work · 다른 PC 세션 제외)')))
     atomic_write(os.path.join(out_dir, 'team_live.json'), doc)
     atomic_write(st_path, state)
     atomic_write(tk_path, tcache)

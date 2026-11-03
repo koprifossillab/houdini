@@ -334,8 +334,8 @@ function renderTeamLive(v, offline) {
   $('tk-summary').replaceChildren(
     tile('Houdini 프로젝트 · 오늘(KST)', tk.houdini?.today_kst, tk.houdini_rate),
     tile('Houdini 프로젝트 · 누적', tk.houdini?.all, null, tk.unassigned_houdini?.all?.total_tokens ? h('span', { text: `팀 이름 없는 과거 세션 몫 ${tokFmt(tk.unassigned_houdini.all.total_tokens)} · ${usd(tk.unassigned_houdini.all.cost_usd)}` }) : null),
-    tile('서버 전체 Claude Code · 오늘(KST)', tk.server?.today_kst, tk.server_rate),
-    tile('서버 전체 Claude Code · 누적', tk.server?.all));
+    tile('관측 범위 전체 · 오늘(KST)', tk.server?.today_kst, tk.server_rate),
+    tile('관측 범위 전체 · 누적', tk.server?.all));
   const sess = tk.sessions || [];
   $('tk-sessions').replaceChildren(
     h('thead', {}, h('tr', {}, ...['세션', '팀', '마지막 활동', '토큰', '출력', 'USD', 'KRW'].map((x, i) => h('th', { class: i >= 3 ? 'num' : null, text: x })))),
