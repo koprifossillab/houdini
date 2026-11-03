@@ -25,7 +25,7 @@ function tokens(t) {
 const windows = w => (w && typeof w === 'object' ? Object.fromEntries(['last_5m', 'last_60m', 'today_kst', 'all'].map(k => [k, tokens(w[k])])) : null);
 const rate = r => (r && typeof r === 'object' ? { tokens_per_min: num(r.tokens_per_min), output_per_min: num(r.output_per_min), usd_per_hour: num(r.usd_per_hour), krw_per_hour: num(r.krw_per_hour) } : null);
 const decision = d => (d && typeof d === 'object' ? { state: clean(d.state, 30) || 'unknown', basis: clean(d.basis, 200) || null, evidence_ref: clean(d.evidence_ref, 200) || null, recorded_at: iso(d.recorded_at) } : null);
-const prevSession = p => (p && typeof p === 'object' ? { id: sid(p.id), name: name(p.name), bound_at: iso(p.bound_at), stopped_at: iso(p.stopped_at), stop_basis: clean(p.stop_basis, 160) || null, last_activity_at: iso(p.last_activity_at) } : null);
+const prevSession = p => (p && typeof p === 'object' ? { id: sid(p.id), name: name(p.name), bound_at: iso(p.bound_at), started_at: iso(p.started_at), stopped_at: iso(p.stopped_at), stop_basis: clean(p.stop_basis, 160) || null, last_activity_at: iso(p.last_activity_at) } : null);
 
 function team(t, collectorFresh) {
   const ex = t.execution || {};
@@ -47,7 +47,11 @@ function team(t, collectorFresh) {
   return {
     team_id: t.team_id, link,
     label: clean(t.label, 60) || t.team_id, duty: clean(t.duty, 120) || null,
-    execution: { state, basis, reported_state: ex.state, duplicate_live_sessions: count(ex.duplicate_live_sessions) ?? 0 },
+    execution: { state, basis, reported_state: ex.state, duplicate_live_sessions: count(ex.duplicate_live_sessions) ?? 0,
+      process_alive: collectorFresh && typeof ex.process_alive === 'boolean' ? ex.process_alive : null,
+      observed_process_alive: typeof ex.process_alive === 'boolean' ? ex.process_alive : null,
+      observed_at: iso(ex.observed_at), activity_recent: collectorFresh && typeof ex.activity_recent === 'boolean' ? ex.activity_recent : null,
+      recent_window_s: count(ex.recent_window_s) ?? 600, activity_basis: clean(ex.activity_basis, 160) || '근거 미확인' },
     session: s ? { id: sid(s.id), name: name(s.name), kind: clean(s.kind, 20), start: clean(s.start, 40), binding: ['verified', 'name_only', 'conflict'].includes(s.binding) ? s.binding : 'name_only', started_at: iso(s.started_at), last_activity_at: iso(s.last_activity_at), reported_status: clean(s.reported_status, 12) } : null,
     connected_since: iso(t.connected_since),
     previous_session: prevSession(t.previous_session),

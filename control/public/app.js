@@ -267,18 +267,20 @@ const usd = v => (v === null || v === undefined ? '—' : `$${v < 10 ? v.toFixed
 const krw = v => (v === null || v === undefined ? '—' : `₩${int.format(Math.round(v))}`);
 const tokFmt = v => (v === null || v === undefined ? '—' : v >= 1e9 ? `${(v / 1e9).toFixed(2)}B` : v >= 1e6 ? `${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(1)}K` : String(v));
 const row = (k, v) => h('div', { class: 'tl-row' }, h('span', { text: k }), h('span', { text: v ?? '—' }));
-let teamLive = null, teamLiveOk = 0;
+let teamLive = null, teamLiveOk = 0, teamLiveOffline = false;
 
 function teamCard(t) {
   const [label, tone, hint] = EXEC[t.execution.state] || EXEC.UNKNOWN;
   const s = t.session, hd = t.handoff || {}, pv = t.previous_session;
+  const timedRow=(key,label)=>h('div',{class:'tl-row'},h('span',{text:label}),h('span',{id:`tl-${key}-${t.team_id}`,text:'미확인'}));
   const tk = t.tokens || {};
   return h('div', { class: `tl-card ${t.execution.state}` },
     h('div', { class: 'team-head' }, h('h3', { text: t.label }), tag(t.team_id, 'locked')),
     h('div', { class: `tl-link ${t.link?.level || 'none'}` }, h('b', { text: t.link?.level === 'full' ? '완전 연결' : t.link?.level === 'name_only' ? '팀 이름만 식별 — 완전 연결 아님' : '연결된 세션 없음' }),
       t.link?.missing?.length ? h('span', { text: `빠진 조건: ${t.link.missing.join(' · ')}` }) : t.link?.level === 'full' ? h('span', { text: '팀 이름 · 팀 시작 폴더 · 담당 팀 인수인계 모두 일치' }) : null),
     t.duty ? h('p', { class: 'duty', text: t.duty }) : null,
-    h('div', { class: 'tl-state' }, tag(label, tone), h('b', { text: t.execution.state }), h('span', { class: 'basis', text: t.execution.basis || hint })),
+    h('div', { class: 'tl-state' }, tag(label, tone), h('b', { id:`tl-state-${t.team_id}`, text: t.execution.state }), h('span', { id:`tl-basis-${t.team_id}`, class: 'basis', text: t.execution.basis || hint })),
+    h('div',{class:'tl-sec'}, timedRow('elapsed','세션 경과 (HH:MM)'),timedRow('duration-basis','경과 시간 기준'),timedRow('activity','마지막 활동 이후'),timedRow('process','프로세스 생존'),timedRow('recent','최근 활동 근거'),timedRow('collected','마지막 서버 수집')),
     t.execution.duplicate_live_sessions ? h('div', { class: 'note', text: `같은 팀 이름의 살아 있는 세션 ${t.execution.duplicate_live_sessions + 1}개 — 역할 중복 확인 필요` }) : null,
     h('div', { class: 'tl-sec' }, h('small', { text: '연결된 세션' }),
       s ? [row('세션', `${s.name || '이름 없음'} · ${s.id}`), row('시작', kst(s.started_at)), row('마지막 활동', kst(s.last_activity_at)), row('연결 방식', s.start),
@@ -348,9 +350,24 @@ function renderTeamLive(v, offline) {
     h('span', { text: `원화 환산: 1 USD = ₩${fx.krw_per_usd ? int.format(fx.krw_per_usd) : '—'} (${fx.as_of || '—'}) — ${fx.basis || '환율 기준 없음'}` }));
 }
 
+function tickTeamTimers() {
+  if(!teamLive||!globalThis.TCTeamClock)return;
+  for(const t of teamLive.teams){
+    const m=TCTeamClock.measure(t,teamLiveOffline?{...teamLive,state:'offline'}:teamLive);
+    for(const [key,text] of Object.entries({elapsed:m.elapsed,'duration-basis':m.durationBasis,activity:m.lastActivity,process:m.process,recent:m.activity,collected:`${kst(teamLive.generated_at)} · ${TCTeamClock.format(m.collectorAgeSeconds)} 전`})){
+      const node=$(`tl-${key}-${t.team_id}`);if(node)node.textContent=text;
+    }
+    const code=$(`tl-state-${t.team_id}`);if(code){code.textContent=m.state;const badge=code.previousElementSibling;if(badge){const [label,tone]=EXEC[m.state]||EXEC.UNKNOWN;badge.textContent=label;badge.className=`tag ${tone}`;}}
+    const basis=$(`tl-basis-${t.team_id}`);
+    if(basis)basis.textContent=!m.fresh?'서버 수집 갱신 지연 · 현재 작업 진행 미확인':m.state==='STALE'&&t.execution.process_alive===true?'프로세스 생존 · 최근 활동 미확인':t.execution.basis;
+  }
+  const age=TCTeamClock.measure({execution:{}},teamLive).collectorAgeSeconds;
+  $('tl-age').textContent=`서버 수집 ${kstTime(teamLive.generated_at)} KST · ${TCTeamClock.format(age)} 전`;
+}
+
 async function refreshTeamLive() {
-  try { teamLive = await getJson('api/teams'); teamLiveOk = Date.now(); renderTeamLive(teamLive, false); }
-  catch { renderTeamLive(teamLive, true); }
+  try { teamLive = await getJson('api/teams'); teamLiveOffline=false; teamLiveOk = Date.now(); renderTeamLive(teamLive, false); tickTeamTimers(); }
+  catch { teamLiveOffline=true; renderTeamLive(teamLive, true); tickTeamTimers(); }
 }
 
 async function refresh() {
@@ -395,6 +412,6 @@ async function init() {
   await refreshTeamLive();
   setInterval(refreshTeamLive, 15000);
   setInterval(refresh, 30000);
-  setInterval(renderClock, 1000);
+  setInterval(() => { renderClock(); tickTeamTimers(); }, 1000);
 }
 init();

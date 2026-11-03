@@ -154,7 +154,8 @@ def live_sessions(cfg, now, tindex):
                         start_class=start_class(d.get('cwd'), team, cfg) if team else None,
                         status=d.get('status') if d.get('status') in ('busy', 'idle', 'waiting') else 'other',
                         started_at=(d.get('startedAt') or 0) / 1000,
-                        registry_updated_at=max((d.get('updatedAt') or 0), (d.get('statusUpdatedAt') or 0)) / 1000,
+                        registry_updated_at=(d.get('updatedAt') or 0) / 1000,
+                         status_updated_at=(d.get('statusUpdatedAt') or 0) / 1000,
                         transcript_mtime=max(mt) if mt else None, kind=d.get('kind') if d.get('kind') in ('interactive', 'print', 'sdk') else 'other'))
     return out
 
@@ -313,26 +314,29 @@ def handoff_view(rec):
 
 
 # ---------------------------------------------------------------- state machine
+def activity_at(s):
+    # Registry updatedAt can be a heartbeat; it is NOT proof of new work.
+    return max(s.get('status_updated_at') or 0, s.get('transcript_mtime') or 0)
+
+
 def team_state(team, sess, prev, now, fresh_s):
-    """returns (state, basis, session_view) for one team"""
     bound = [s for s in sess if s['team'] == team and s['alive']]
     if bound:
-        s = max(bound, key=lambda x: max(x['registry_updated_at'], x['transcript_mtime'] or 0))
-        last = max(s['registry_updated_at'], s['transcript_mtime'] or 0)
-        age = now - last
-        if s['status'] == 'busy' and age <= fresh_s:
-            st, basis = 'RUNNING', f'프로세스 생존(시작 시각 일치) · 세션 상태 busy · 최근 활동 {int(age)}초 전'
+        s = max(bound, key=activity_at)
+        last = activity_at(s)
+        age = now - last if last else None
+        if s['status'] == 'busy' and age is not None and 0 <= age <= fresh_s:
+            st, basis = 'RUNNING', 'Claude busy · 최근 활동 기록 확인 (물리 계산 진행 증거와 별개)'
         elif s['status'] in ('idle', 'waiting'):
-            st, basis = 'IDLE', '프로세스 생존(시작 시각 일치) · 세션이 입력 대기(idle)로 보고함'
-        elif s['status'] == 'busy':
-            st, basis = 'STALE', f'프로세스는 살아 있으나 busy 표시 뒤 {int(age // 60)}분 동안 활동 근거 없음'
+            st, basis = 'IDLE', '프로세스 생존 · 세션이 입력 대기(idle)로 보고함'
+        elif s['status'] == 'busy' or s.get('registry_missing'):
+            st, basis = 'STALE', '프로세스 생존 · 최근 활동 미확인'
         else:
-            st, basis = 'UNKNOWN', '프로세스는 살아 있으나 세션 상태를 해석할 수 없음'
+            st, basis = 'UNKNOWN', '프로세스 생존 · 세션 작업 진행 여부 미확인'
         return st, basis, s, len(bound)
     if prev:
-        # a session was bound before and is no longer a live process with the same start time
-        return 'STOPPED', prev.get('stop_basis') or '이전 연결 세션의 프로세스 종료 확인', None, 0
-    return 'UNKNOWN', '이 팀에 연결된(이름이 지정된) 세션을 본 적 없음 — 실행 여부 확인 불가', None, 0
+        return 'STOPPED', prev.get('stop_basis') or '이전 세션 종료 확인', None, 0
+    return 'UNKNOWN', '이 팀의 실행 근거 미확인', None, 0
 
 
 def session_public(s, cfg):
@@ -342,7 +346,7 @@ def session_public(s, cfg):
                 start=dict(team_start='팀 전용 시작 폴더', shared_repo='공용 저장소 폴더 (분리 안 됨)',
                            other_team_start='다른 팀 시작 폴더 (충돌)', other='기타 폴더', unknown='확인 불가').get(s['start_class'], '확인 불가'),
                 binding='verified' if s['start_class'] == 'team_start' else 'conflict' if s['start_class'] == 'other_team_start' else 'name_only',
-                started_at=iso(s['started_at']), last_activity_at=iso(max(s['registry_updated_at'], s['transcript_mtime'] or 0)),
+                started_at=iso(s['started_at']), last_activity_at=iso(activity_at(s)),
                 reported_status=s['status'])
 
 
@@ -434,9 +438,17 @@ def main():
         if prev and not prev.get('stopped_at'):
             same = [x for x in sess if x['session_id'] == prev['session_id']]
             if not (same and same[0]['alive']):
-                why = ('PID 재사용 감지 — 같은 PID 의 다른 프로세스(시작 시각 불일치)' if same and same[0]['pid_reused']
-                       else '등록 파일은 남았으나 프로세스 없음' if same else '세션 등록 파일 삭제 · 프로세스 없음')
-                prev.update(stopped_at=iso(now), stop_basis=f'종료 확인: {why}')
+                ps = proc_start(prev.get('pid'))
+                if ps is not None and ps == str(prev.get('proc_start')):
+                    paths = tindex.get(prev['session_id'], [])
+                    mt = max((os.path.getmtime(p) for p in paths if os.path.exists(p)), default=0)
+                    sess.append(dict(session_id=prev['session_id'],pid=prev['pid'],proc_start=ps,alive=True,
+                        pid_reused=False,name=prev.get('name'),team=team,start_class='unknown',status='other',
+                        started_at=datetime.fromisoformat(prev['started_at']).timestamp() if prev.get('started_at') else 0,
+                        registry_updated_at=0,status_updated_at=0,transcript_mtime=mt,kind='other',registry_missing=True))
+                else:
+                    why = '프로세스 없음' if ps is None else 'PID 재사용 · 시작 시각 불일치'
+                    prev.update(stopped_at=iso(now), stop_basis=f'종료 확인: {why}')
         # 2) current state
         if not tcfg.get('observable', True):
             st, basis, s, n_alive = 'UNKNOWN', tcfg.get('unobservable_basis', '이 팀의 실행 환경은 서버에서 관측할 수 없음'), None, 0
@@ -448,13 +460,13 @@ def main():
                 if prev and not prev.get('stopped_at'):
                     prev.update(stopped_at=iso(now), stop_basis='다른 세션이 이 팀으로 새로 연결됨 (이전 세션은 아직 살아 있을 수 있음)')
                 rec = dict(session_id=s['session_id'], pid=s['pid'], proc_start=s['proc_start'], name=s['name'], bound_at=iso(now),
-                           previous=({k: prev.get(k) for k in ('session_id', 'name', 'bound_at', 'stopped_at', 'stop_basis', 'last_activity_at')} if prev else None))
+                           previous=({k: prev.get(k) for k in ('session_id', 'name', 'bound_at', 'stopped_at', 'stop_basis', 'last_activity_at', 'started_at')} if prev else None))
                 events.append(dict(at=iso(now), team=team, event='connected', session=short(s['session_id']), name=s['name']))
             else:
                 rec = prev
                 if prev.get('last_state') != st:
                     events.append(dict(at=iso(now), team=team, event='state', session=short(s['session_id']), frm=prev.get('last_state'), to=st))
-            rec.update(last_state=st, last_activity_at=iso(max(s['registry_updated_at'], s['transcript_mtime'] or 0)))
+            rec.update(last_state=st, last_activity_at=iso(activity_at(s)), started_at=rec.get('started_at') or iso(s['started_at']))
             state['teams'][team] = rec
         elif prev and prev.get('stopped_at') and prev.get('last_state') != 'STOPPED':
             events.append(dict(at=iso(now), team=team, event='stopped', session=short(prev['session_id']), name=prev.get('name'), basis=prev.get('stop_basis')))
@@ -464,10 +476,14 @@ def main():
             pv = cur.get('previous')
         else:
             pv = cur
-        previous_session = (dict(id=short(pv['session_id']), name=pv.get('name'), bound_at=pv.get('bound_at'), stopped_at=pv.get('stopped_at'),
+        previous_session = (dict(id=short(pv['session_id']), name=pv.get('name'), bound_at=pv.get('bound_at'), stopped_at=pv.get('stopped_at'), started_at=pv.get('started_at'),
                                  stop_basis=pv.get('stop_basis'), last_activity_at=pv.get('last_activity_at')) if pv else None)
         teams_out.append(dict(team_id=team, label=tcfg.get('label', team), duty=tcfg.get('duty'),
-                              execution=dict(state=st, basis=basis, duplicate_live_sessions=max(0, n_alive - 1)),
+                              execution=dict(state=st, basis=basis, duplicate_live_sessions=max(0, n_alive - 1),
+                                  process_alive=True if s else False if st == 'STOPPED' else None,
+                                  observed_at=iso(now), recent_window_s=fresh_s,
+                                  activity_recent=(0 <= now-activity_at(s) <= fresh_s) if s and activity_at(s) else None,
+                                  activity_basis='상태 전환 시각·대화 기록 갱신 (등록 heartbeat 제외)' if s and activity_at(s) else '활동 근거 미확인'),
                               session=session_public(s, cfg), connected_since=cur.get('bound_at') if s and cur else None,
                               previous_session=previous_session,
                               handoff=handoff_view((led or {}).get(team)),
