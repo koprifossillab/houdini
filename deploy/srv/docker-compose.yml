@@ -58,11 +58,13 @@ services:
       - ${HPC_MEDIA_MANIFEST_HOST:?미디어 목록 JSON}:/data/runtime/media.json:ro
       - ${HPC_TEAM_LIVE_HOST_DIR:?팀 세션 수집 출력}:/data/team_live:ro
       - ${HPC_WORK_ACTIVITY_HOST_DIR:?Work 서명 이벤트 출력}:/data/work_activity:ro
-      # 0.2.0: handoff cards, decision records (written by teams / ④ on the host), NAS film and launcher folders
-      - ${HPC_HANDOFF_HOST_DIR:?인계 카드 폴더}:/data/handoff:ro
-      - ${HPC_DECISIONS_HOST_DIR:?판정 기록 폴더}:/data/decisions:ro
-      - ${HPC_NAS_FILM_HOST_DIR:?NAS 영상 작업 폴더}:/data/nas_film:ro
-      - ${HPC_NAS_LAUNCH_HOST_DIR:?NAS 실행기 폴더}:/data/nas_launch:ro
+      # 0.2.0: handoff cards, decision records (written by teams / ④ on the host), NAS film and launcher folders.
+      # Long syntax with create_host_path: false — a missing host folder stops compose instead of docker
+      # creating an empty root-owned folder (② QA review of b4cf816).
+      - { type: bind, source: "${HPC_HANDOFF_HOST_DIR:?인계 카드 폴더}", target: /data/handoff, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: "${HPC_DECISIONS_HOST_DIR:?판정 기록 폴더}", target: /data/decisions, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: "${HPC_NAS_FILM_HOST_DIR:?NAS 영상 작업 폴더}", target: /data/nas_film, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: "${HPC_NAS_LAUNCH_HOST_DIR:?NAS 실행기 폴더}", target: /data/nas_launch, read_only: true, bind: { create_host_path: false } }
     ports:
       # loopback only — the one way in from outside is nginx over TLS
       - "127.0.0.1:${HPC_HOST_PORT:-8097}:8097"

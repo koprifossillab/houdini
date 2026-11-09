@@ -45,7 +45,9 @@ for p in api/director api/director/TC-DASH-005 director/INDEX.json nasimg/000000
   c=$(code "$B/$p"); { [ "$c" = 404 ] || [ "$c" = 400 ]; } && ok "refused /$p ($c)" || bad "/$p returned $c"
 done
 for m in POST PUT DELETE PATCH; do [ "$(code -X "$m" "$B/api/board")" = 405 ] && ok "$m /api/board 405" || bad "$m /api/board"; done
-[ "$(curl -s "$B/api/nas" | sha256sum)" = "$(curl -s "$B/api/nas?folder=TC3D_DIRECTOR_DECISIONS" | sha256sum)" ] && ok "/api/nas ignores query" || bad "/api/nas reacts to query"
+# the clue list is cached for 60 s; a refresh between the two requests can differ once — compare twice
+same_nas() { [ "$(curl -s "$B/api/nas" | sha256sum)" = "$(curl -s "$B/api/nas?folder=TC3D_DIRECTOR_DECISIONS" | sha256sum)" ]; }
+{ same_nas || same_nas; } && ok "/api/nas ignores query" || bad "/api/nas reacts to query"
 
 # 6 leak scan: originals folder name, system paths, private terms
 terms="DIRECTOR_DECISIONS,/home/,/nfs/,/srv/,/mnt/${CHECK_LEAK_TERMS:+,$CHECK_LEAK_TERMS}"
