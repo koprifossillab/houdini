@@ -1,7 +1,7 @@
 {
   "name": "houdini-production-control",
   "private": true,
-  "version": "0.2.0-staging.2",
+  "version": "0.2.0-staging.3",
   "description": "Thermal Collapse production control \u2014 read-only web service",
   "type": "module",
   "scripts": {

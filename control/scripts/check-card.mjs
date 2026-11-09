@@ -24,7 +24,8 @@ for (const file of process.argv.slice(2)) {
     if (!/^TC-[0-9A-Z]{2,5}-\d{3}[A-Za-z0-9]{0,3}$/.test(String(doc?.task_id || ''))) why.push('task_id 형식 오류 (예: TC-VIS-030)');
     if (!['in_progress', 'handed_off', 'blocked', 'done'].includes(doc?.state)) why.push('state 는 in_progress · handed_off · blocked · done 중 하나');
     if (!Number.isFinite(Date.parse(doc?.at))) why.push('at 시각 없음·형식 오류');
-    if (doc?.author?.method === 'transcribed') why.push('전사 카드는 author.transcribed_from {ref, at} 이 필요');
+    if (doc?.author?.method === 'transcribed') why.push('전사 카드는 author.transcribed_from 에 원문 위치(ref)와 원문 시각(at)을 직접 적어야 함 — 근거·카드 시각으로 대신하지 않음');
+    else if (doc?.transcribed_by && !doc?.author) why.push('옛 형식 전사 카드는 첫 근거에 원문 시각(at)이 있어야 함');
     console.log(`✕ ${name}: 관제실이 받지 않음 — ${why.join(' / ') || '형식 오류'}`);
     bad += 1;
     continue;

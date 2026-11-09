@@ -104,12 +104,13 @@ export function parseCard(doc, team, file) {
   const when = at(doc.at);
   if (!state || !when) return null;
   const au = author(doc);
-  // a transcription must say where it was copied from and when (D-1 ②); legacy cards fall back to their
-  // first evidence reference, otherwise the card is rejected
-  if (au.method === 'transcribed' && !au.transcribed_from) {
+  // A transcription must say where it was copied from and when the original was recorded (D-1 ②, QA F1).
+  //   - cards with an author block: transcribed_from {ref, at} must be written explicitly — no fallback.
+  //   - legacy cards (no author block, top-level transcribed_by): the first evidence entry may stand in,
+  //     but only when that entry carries its own time. The card's own time is never used as the original's.
+  if (au.method === 'transcribed' && !au.transcribed_from && !(doc.author && typeof doc.author === 'object')) {
     const ev0 = Array.isArray(doc.evidence) ? doc.evidence[0] : null;
-    au.transcribed_from = source(ev0 && { ...ev0, at: ev0.at || doc.at }, precision(doc.at_precision));
-    if (au.transcribed_from && !ev0.at) au.transcribed_from.at_precision = precision(doc.at_precision);
+    if (ev0 && typeof ev0 === 'object' && at(ev0.at)) au.transcribed_from = source(ev0, 'time');
   }
   if (au.method === 'transcribed' && (!au.transcribed_from?.ref || !au.transcribed_from.at)) return null;
   const ev = evidence(doc.evidence);

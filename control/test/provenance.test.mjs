@@ -39,9 +39,10 @@ test('three kinds of provenance are kept apart; a file cannot declare itself sig
   assert.equal(tr.grade, 'transcribed');
   assert.equal(tr.author.transcribed_from.ref, 'TC3D_X › REPORT_KO.md');
   assert.equal(card('TC-PROD', { author: { method: 'transcribed' }, evidence: [] }), null, 'transcription without a source is rejected');
-  const legacy = card('TC-PROD', { transcribed_by: 'TC-DASH', evidence: [{ kind: 'nas', ref: 'film/TC3D_Y/DEFECT_KO.md' }] });
+  const legacy = card('TC-PROD', { transcribed_by: 'TC-DASH', evidence: [{ kind: 'nas', ref: 'film/TC3D_Y/DEFECT_KO.md', at: '2026-11-09T14:44:58+09:00' }] });
   assert.equal(legacy.grade, 'transcribed', 'legacy cards with transcribed_by are transcriptions');
   assert.equal(legacy.author.transcribed_from.ref, 'TC3D_Y › DEFECT_KO.md');
+  assert.equal(legacy.author.transcribed_from.at, new Date('2026-11-09T14:44:58+09:00').toISOString());
   const b = buildBoard({ cards: [self, tr], now: NOW });
   const ev = b.current.last;
   assert.ok(['직접 작성', '전사'].some(w => ev.provenance.includes(w)));
@@ -211,4 +212,32 @@ test('a run cited by a transcribed card keeps the transcription grade', () => {
   const tr = card('TC-PROD', { state: 'handed_off', author: { method: 'transcribed', transcribed_by: 'TC-DASH', transcribed_from: { ref: 'film/TC3D_X_RESULT_20261109_125858_RAW_PRESERVED', at: '2026-11-09T13:06:17+09:00' } }, evidence: [{ kind: 'nas', ref: 'film/TC3D_X_RESULT_20261109_125858_RAW_PRESERVED' }] });
   assert.equal(buildBoard({ cards: [tr], nas, now: NOW }).execution.last_run.grade, 'transcribed');
   assert.equal(buildBoard({ cards: [], nas, now: NOW }).execution.last_run.grade, 'clue');
+});
+
+// QA F1 (QA_TC-DASH-004_D1_REVIEW_KO.md §2): transcriptions without an explicit original location and time
+test('F1: a transcription is refused unless the original location and its own time are given', async t => {
+  const base = { schema: 'tc-handoff/1', team: 'TC-WORK', task_id: 'TC-VIS-030', title: 't', state: 'in_progress', at: '2026-11-10T10:00:00+09:00' };
+  const tr = { method: 'transcribed', transcribed_by: 'TC-DASH' };
+  const refused = {
+    'new format, no transcribed_from, evidence without time': { ...base, author: tr, evidence: [{ kind: 'report', ref: '③ 보고' }] },
+    'new format, no transcribed_from, evidence with time': { ...base, author: tr, evidence: [{ kind: 'report', ref: '③ 보고', at: '2026-11-10T09:00:00+09:00' }] },
+    'new format, no transcribed_from, no evidence': { ...base, author: tr },
+    'new format, transcribed_from without time': { ...base, author: { ...tr, transcribed_from: { ref: 'r' } } },
+    'new format, transcribed_from without location': { ...base, author: { ...tr, transcribed_from: { at: '2026-11-10T09:00:00+09:00' } } },
+    'legacy, evidence without time': { ...base, transcribed_by: 'TC-DASH', evidence: [{ kind: 'report', ref: 'x' }] },
+    'legacy, no evidence': { ...base, transcribed_by: 'TC-DASH' },
+  };
+  for (const [k, doc] of Object.entries(refused)) assert.equal(parseCard(doc, 'TC-WORK', 'a.json'), null, k);
+  const ok = parseCard({ ...base, author: { ...tr, transcribed_from: { ref: 'r', at: '2026-11-10T09:00:00+09:00' } } }, 'TC-WORK', 'a.json');
+  assert.equal(ok.author.transcribed_from.at, new Date('2026-11-10T09:00:00+09:00').toISOString());
+  assert.notEqual(ok.author.transcribed_from.at, new Date(base.at).toISOString(), 'never the card time');
+  const legacyOk = parseCard({ ...base, transcribed_by: 'TC-DASH', evidence: [{ kind: 'report', ref: 'x', at: '2026-11-09T13:06:17+09:00' }] }, 'TC-WORK', 'a.json');
+  assert.equal(legacyOk.author.transcribed_from.at, new Date('2026-11-09T13:06:17+09:00').toISOString());
+  // the card checker agrees with the reader (Q12)
+  const { execFile } = await import('node:child_process');
+  const dir = await tmp(t);
+  const f = path.join(dir, 'TC-WORK', '20261110-1000_TC-VIS-030.json');
+  await put(f, JSON.stringify(refused['new format, no transcribed_from, evidence without time']));
+  const code = await new Promise(r => execFile(process.execPath, [new URL('../scripts/check-card.mjs', import.meta.url).pathname, f], e => r(e ? e.code : 0)));
+  assert.equal(code, 1, 'check-card refuses it too');
 });
