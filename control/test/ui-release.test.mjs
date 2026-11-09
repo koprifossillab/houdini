@@ -4,7 +4,8 @@ import {serve} from './helpers.mjs';
 
 test('UI release preserves prefixed routes and existing auth; Production Link is absent',async t=>{
  const base=await serve(t,{});
- const home=await (await fetch(base+'/Houdini/')).text();
+ // TC-DASH-003: the previous board moved unchanged to legacy.html; the new home is board.js
+ const home=await (await fetch(base+'/Houdini/legacy.html')).text();
  assert.match(home,/scene-review\.js/);
  assert.match(home,/영상 검수/);
  for(const route of ['static/scene-review.js','static/scene-review.json','api/overview','api/media','api/reports','healthz'])assert.equal((await fetch(base+'/Houdini/'+route)).status,200,route);

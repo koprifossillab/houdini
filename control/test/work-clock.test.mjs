@@ -9,4 +9,4 @@ test('Work completion persists beyond freshness; age ticks; duration fixed; exec
 });
 
 import fs from 'node:fs/promises';
-test('Work clock asset is explicitly routed and loaded before app',async()=>{const server=await fs.readFile(new URL('../server.mjs',import.meta.url),'utf8'),html=await fs.readFile(new URL('../public/index.html',import.meta.url),'utf8');assert.ok(server.includes("'/static/work-clock.js':"));assert.ok(html.indexOf('static/work-clock.js')<html.indexOf('static/app.js'));});
+test('Work clock asset is explicitly routed and loaded before app',async()=>{const server=await fs.readFile(new URL('../server.mjs',import.meta.url),'utf8'),html=await fs.readFile(new URL('../public/legacy.html',import.meta.url),'utf8');assert.ok(server.includes("'/static/work-clock.js':"));assert.ok(html.indexOf('static/work-clock.js')<html.indexOf('static/app.js'));});

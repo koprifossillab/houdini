@@ -14,6 +14,9 @@ import { createAuth, parseUsers } from './lib/auth.mjs';
 import { exampleCollector, EXAMPLE_REPORT } from './lib/example.mjs';
 import { teamLiveView } from './lib/teamlive.mjs';
 import { attachWorkActivity } from './lib/workactivity.mjs';
+import { readCards, readDecisions } from './lib/handoff.mjs';
+import { nasClues, nasImage, publicNas } from './lib/nas.mjs';
+import { buildBoard } from './lib/board.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PKG = JSON.parse(await fs.readFile(path.join(ROOT, 'package.json'), 'utf8'));
@@ -35,6 +38,10 @@ const ASSETS = {
   '/static/scene-review.json': ['scene-review.json', 'application/json; charset=utf-8'],
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/index.html': ['index.html', 'text/html; charset=utf-8'],
+  // TC-DASH-003: the previous board (all 18 technical sections) stays reachable unchanged
+  '/legacy.html': ['legacy.html', 'text/html; charset=utf-8'],
+  '/static/board.js': ['board.js', 'text/javascript; charset=utf-8'],
+  '/static/board.css': ['board.css', 'text/css; charset=utf-8'],
   '/static/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/static/style.css': ['style.css', 'text/css; charset=utf-8'],
   '/static/icon.svg': ['icon.svg', 'image/svg+xml'],
@@ -53,6 +60,10 @@ export function configFromEnv(env = process.env) {
     // team session collector output (team_live.json); unset = the team panel shows 'not connected'
     teamLiveDir: env.HPC_TEAM_LIVE_DIR || null,
     workActivityDir: env.HPC_WORK_ACTIVITY_DIR || null,
+    // TC-DASH-003 read-only sources; unset = the board shows 'not connected' for that source
+    handoffDir: env.HPC_HANDOFF_DIR || null,
+    decisionsDir: env.HPC_DECISIONS_DIR || null,
+    nas: { film: env.HPC_NAS_FILM_DIR || null, launch: env.HPC_NAS_LAUNCH_DIR || null },
     recordsFile: env.HPC_RECORDS || path.join(ROOT, 'data', 'records.json'),
     authMode: env.HPC_AUTH || 'basic',
     allowOpen: env.HPC_ALLOW_OPEN === '1',
@@ -102,7 +113,7 @@ export function computeState(snap) {
   return { physics, activity, blender_queue, observed_at: snap.generated_at, fresh };
 }
 
-const ROUTES = [[/^\/healthz$/, 'healthz'], [/^\/(?:index\.html)?$/, 'page'], [/^\/static\/[\w.-]+$/, 'static'], [/^\/api\/(session|overview|reports|experiments|media|teams)$/, 'api/$1'], [/^\/api\/reports\/[a-f0-9]{16}$/, 'api/report'], [/^\/media\/[a-z0-9_-]{1,60}$/, 'media']];
+const ROUTES = [[/^\/healthz$/, 'healthz'], [/^\/(?:index\.html)?$/, 'page'], [/^\/static\/[\w.-]+$/, 'static'], [/^\/(?:legacy\.html)$/, 'legacy'], [/^\/api\/(session|overview|reports|experiments|media|teams|board|nas)$/, 'api/$1'], [/^\/nasimg\/[a-f0-9]{16}$/, 'nasimg'], [/^\/api\/reports\/[a-f0-9]{16}$/, 'api/report'], [/^\/media\/[a-z0-9_-]{1,60}$/, 'media']];
 export function routeId(raw) {
   let p = String(raw || '').split('?')[0];
   p = p.replace(/^\/Houdini(?=\/|$)/, '') || '/';
@@ -223,6 +234,31 @@ export function createApp(cfg = configFromEnv()) {
     if (p === '/api/teams') {
       if (cfg.demo) return send(req, res, 200, { ...(await teamLiveView(null)), mode: 'example' });
       return send(req, res, 200, { served_at: new Date().toISOString(), ...(await attachWorkActivity(await teamLiveView(cfg.teamLiveDir), cfg.workActivityDir, path.join(ROOT,'data','work-public.pem'))) });
+    }
+    if (p === '/api/board') {
+      const [cards, decisions, nas, tl] = await Promise.all([
+        readCards(cfg.demo ? null : cfg.handoffDir), readDecisions(cfg.demo ? null : cfg.decisionsDir),
+        nasClues(cfg.demo ? null : cfg.nas), cfg.demo ? Promise.resolve(null) : teamLiveView(cfg.teamLiveDir),
+      ]);
+      const board = buildBoard({ cards: cards.items, decisions: decisions.items, nas, teamLive: tl, now: Date.now() });
+      return send(req, res, 200, {
+        served_at: new Date().toISOString(),
+        sources: {
+          handoff: { state: cards.state, message: cards.message, count: cards.items.length, invalid: cards.invalid, newest_at: cards.newest_at || null },
+          decisions: { state: decisions.state, message: decisions.message, count: decisions.items.length, invalid: decisions.invalid, newest_at: decisions.newest_at || null },
+          nas: { state: nas.state, message: nas.message, folders: nas.folders.length, checked_at: nas.checked_at || null },
+          team_live: tl ? { state: tl.state, observed_at: tl.generated_at || null } : { state: 'missing' },
+        },
+        ...board,
+      });
+    }
+    if (p === '/api/nas') {
+      return send(req, res, 200, publicNas(await nasClues(cfg.demo ? null : cfg.nas)));
+    }
+    const nm = /^\/nasimg\/([a-f0-9]{16})$/.exec(p);
+    if (nm) {
+      const r = await nasImage(await nasClues(cfg.demo ? null : cfg.nas), nm[1]);
+      return send(req, res, r.status, r.body, r.type || 'text/plain; charset=utf-8', r.status === 200 ? { 'Cache-Control': 'private, max-age=300' } : {});
     }
     if (p === '/api/reports') {
       const g = await gather();
