@@ -69,6 +69,14 @@ test('transcribed cards never make "now" in progress; signed ones can, labelled 
   assert.match(b.teams.find(x => x.id === 'TC-WORK').last.provenance, /무결성.*신원 증명 아님/);
   assert.ok(b.teams.find(x => x.id === 'TC-WORK').last.source.includes('서명 Work 기록 #3'), 'original event sequence kept as source');
   assert.equal(sha(await fs.readFile(path.join(dir, 'w', 'latest.json'))), before, 'signed originals are only read');
+  // the original event identity is kept in full (TC-HANDOFF-002)
+  const env = JSON.parse(await fs.readFile(path.join(dir, 'w', 'latest.json'), 'utf8'));
+  const payload = JSON.parse(Buffer.from(env.payload_b64, 'base64').toString());
+  assert.equal(s.author.event.event_hash, sha(Buffer.from(env.payload_b64, 'base64')), 'full SHA-256 of the signed payload');
+  assert.equal(s.author.event.sequence, payload.sequence);
+  assert.equal(s.author.event.previous_hash, payload.previous_hash);
+  assert.equal(s.author.event.event_id, payload.event_id);
+  assert.equal(b.teams.find(x => x.id === 'TC-WORK').last.signed.event_hash.length, 64, 'exposed through the board API');
 });
 
 test('tampered or foreign-key Work events produce no card', async t => {

@@ -198,8 +198,10 @@ export async function readDecisions(dir) {
   return { state: 'ok', message: invalid ? `근거가 없거나 형식이 틀린 기록 ${invalid}건은 표시하지 않음` : '판정 기록', items, invalid, newest_at: items.at(-1)?.at || null };
 }
 
-// ③ signed Work events → cards (method 'signed'). The event files are only read; the original envelope
-// hash and sequence stay attached as the card's source. A failed verification produces no card.
+// ③ signed Work events → cards (method 'signed'). Read-only conversion: the envelope files are never written,
+// and the card keeps the original event identity in full — event_hash (SHA-256 of the signed payload bytes, as
+// the intake reports it), sequence, previous_hash and event_id — so it can be traced back to the original.
+// A failed verification produces no card.
 const SIGNED_FILES = ['task-start.json', 'last-complete-start.json', 'last-complete.json', 'latest.json'];
 export function cardFromEvent(p, hash) {
   const state = p.event_type === 'complete' ? 'done' : 'in_progress';
@@ -216,11 +218,11 @@ export function cardFromEvent(p, hash) {
     done: state === 'done' ? clean(p.summary, 300) : '',
     next: clean((p.next || [])[0] || '', 300),
     to: null, user_action: null,
-    evidence: [{ kind: 'work_event', ref: `서명 Work 기록 #${p.sequence} · ${p.event_type}`, sha256: hash.slice(0, 16), at: when },
+    evidence: [{ kind: 'work_event', ref: `서명 Work 기록 #${p.sequence} · ${p.event_type} · ${hash.slice(0, 16)}`, sha256: hash.slice(0, 16), at: when },
       ...(p.artifacts || []).slice(0, 5).map(a => ({ kind: 'file', ref: clean(a.label, 120), sha256: a.sha256.slice(0, 16), at: null }))],
     issues: [],
     at: when, at_precision: 'time',
-    author: { method: 'signed', session: null, transcribed_by: null, transcribed_from: null, signed_claim_ignored: false, identity_verified: false, event: { sequence: p.sequence, hash: hash.slice(0, 16), type: p.event_type } },
+    author: { method: 'signed', session: null, transcribed_by: null, transcribed_from: null, signed_claim_ignored: false, identity_verified: false, event: { schema: 'tc-work-event/1', sequence: p.sequence, event_hash: hash, previous_hash: p.previous_hash, event_id: p.event_id, type: p.event_type, occurred_at: when } },
     grade: 'signed',
   };
 }

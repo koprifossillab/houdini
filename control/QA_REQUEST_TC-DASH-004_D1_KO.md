@@ -1,7 +1,7 @@
 # ② TC-QA 독립 검증 의뢰 — 관제실 D-1 · 감독 원문 차단 (TC-DASH-004 D-1 / TC-DASH-005)
 
 - 의뢰: ④ 관제실 담당 · 2026-11-10
-- 대상 브랜치: `work/20261110-houdini-dash-d1` — 커밋 `4b5c65c`(1차 화면) + `087155f`(D-1) + 이 문서 커밋. 기준 운영판 `5dac91d`.
+- 대상 브랜치: `work/20261110-houdini-dash-d1` — 커밋 `4b5c65c`(1차 화면) + `087155f`(D-1) + `02d4c81`(이 의뢰서) + TC-HANDOFF-002 커밋(③ 원본 식별자 보존·규격 문서). 기준 운영판 `5dac91d`.
 - 범위 밖(하지 말 것): 코드 수정, 운영 컨테이너·nginx·운영 데이터 변경, 운영 배포, push. ② 는 읽고 실행해 보고 판정만 한다.
 - 감독 원문 폴더(`TC3D_DIRECTOR_DECISIONS`)는 **아직 만들지 않는다**. 원문 관련 시험은 임시 폴더로 한다.
 
@@ -21,6 +21,7 @@
 | Q10 | 쓰기 API 없음 (GET·HEAD 외 405), 승인·반려·코멘트 버튼 비활성 | |
 | Q11 | 운영판 무변경 — 이 브랜치는 운영 컨테이너·이미지·compose 와 무관 | `docker inspect houdini-web-1`, 운영 `/api/board` 가 404 |
 | Q12 | `HANDOFF_FORMAT_KO.md` 와 `scripts/check-card.mjs` 가 코드의 실제 규칙과 일치 (문서의 예시 카드가 통과) | |
+| Q13 | (TC-HANDOFF-002 추가) ③ 서명 기록 변환이 읽기 전용이고, 카드의 `author.event` 에 원본 `event_hash`(payload 바이트 SHA-256 64자리)·`sequence`·`previous_hash`·`event_id` 가 그대로 남음. 규격 문서 §3 이 ③ 의 서버 직접 기록을 가정하지 않음 | `lib/handoff.mjs` `cardFromEvent`, `test/provenance.test.mjs`, 실제 Work 기록으로 대조 |
 
 ## 알려 둔 사항
 
