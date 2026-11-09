@@ -32,6 +32,16 @@ services:
       HPC_LEDGER_DIR: /data/ledger
       HPC_MEDIA_DIR: /data/media
       HPC_MEDIA_MANIFEST: /data/runtime/media.json
+      HPC_TEAM_LIVE_DIR: /data/team_live
+      HPC_WORK_ACTIVITY_DIR: /data/work_activity
+      # 0.2.0 (TC-DASH-003…006): read-only project board sources
+      HPC_HANDOFF_DIR: /data/handoff
+      HPC_DECISIONS_DIR: /data/decisions
+      HPC_NAS_FILM_DIR: /data/nas_film
+      HPC_NAS_LAUNCH_DIR: /data/nas_launch
+      # director originals: compare-only, inside the film mount on purpose — no separate mount, so a missing
+      # folder is never created on the host by docker (TC-DASH-005 ⑥). Excluded from the NAS clue search.
+      HPC_DIRECTOR_DIR: /data/nas_film/TC3D_DIRECTOR_DECISIONS
     # uid of the image's `node` user; data is read through world-readable files only
     user: "1000:1000"
     read_only: true
@@ -46,6 +56,13 @@ services:
       - ${HPC_LEDGER_HOST_DIR:?승인된 제작 저장소 checkout}:/data/ledger:ro
       - ${HPC_MEDIA_HOST_DIR:?미리보기 미디어 폴더}:/data/media:ro
       - ${HPC_MEDIA_MANIFEST_HOST:?미디어 목록 JSON}:/data/runtime/media.json:ro
+      - ${HPC_TEAM_LIVE_HOST_DIR:?팀 세션 수집 출력}:/data/team_live:ro
+      - ${HPC_WORK_ACTIVITY_HOST_DIR:?Work 서명 이벤트 출력}:/data/work_activity:ro
+      # 0.2.0: handoff cards, decision records (written by teams / ④ on the host), NAS film and launcher folders
+      - ${HPC_HANDOFF_HOST_DIR:?인계 카드 폴더}:/data/handoff:ro
+      - ${HPC_DECISIONS_HOST_DIR:?판정 기록 폴더}:/data/decisions:ro
+      - ${HPC_NAS_FILM_HOST_DIR:?NAS 영상 작업 폴더}:/data/nas_film:ro
+      - ${HPC_NAS_LAUNCH_HOST_DIR:?NAS 실행기 폴더}:/data/nas_launch:ro
     ports:
       # loopback only — the one way in from outside is nginx over TLS
       - "127.0.0.1:${HPC_HOST_PORT:-8097}:8097"
