@@ -14,7 +14,8 @@ import { createAuth, parseUsers } from './lib/auth.mjs';
 import { exampleCollector, EXAMPLE_REPORT } from './lib/example.mjs';
 import { teamLiveView } from './lib/teamlive.mjs';
 import { attachWorkActivity } from './lib/workactivity.mjs';
-import { readCards, readDecisions } from './lib/handoff.mjs';
+import { readCards, readDecisions, readSignedWork } from './lib/handoff.mjs';
+import { directorOriginals } from './lib/director.mjs';
 import { nasClues, nasImage, publicNas } from './lib/nas.mjs';
 import { buildBoard } from './lib/board.mjs';
 
@@ -63,7 +64,9 @@ export function configFromEnv(env = process.env) {
     // TC-DASH-003 read-only sources; unset = the board shows 'not connected' for that source
     handoffDir: env.HPC_HANDOFF_DIR || null,
     decisionsDir: env.HPC_DECISIONS_DIR || null,
-    nas: { film: env.HPC_NAS_FILM_DIR || null, launch: env.HPC_NAS_LAUNCH_DIR || null },
+    // TC-DASH-005: director originals (compare-only) — also excluded from the NAS clue search
+    directorDir: env.HPC_DIRECTOR_DIR || null,
+    nas: { film: env.HPC_NAS_FILM_DIR || null, launch: env.HPC_NAS_LAUNCH_DIR || null, directorDir: env.HPC_DIRECTOR_DIR || null, exclude: (env.HPC_NAS_EXCLUDE || '').split(',').map(s => s.trim()).filter(Boolean) },
     recordsFile: env.HPC_RECORDS || path.join(ROOT, 'data', 'records.json'),
     authMode: env.HPC_AUTH || 'basic',
     allowOpen: env.HPC_ALLOW_OPEN === '1',
@@ -236,17 +239,24 @@ export function createApp(cfg = configFromEnv()) {
       return send(req, res, 200, { served_at: new Date().toISOString(), ...(await attachWorkActivity(await teamLiveView(cfg.teamLiveDir), cfg.workActivityDir, path.join(ROOT,'data','work-public.pem'))) });
     }
     if (p === '/api/board') {
-      const [cards, decisions, nas, tl] = await Promise.all([
+      const [cards, decisions, nas, tl, signed, originals] = await Promise.all([
         readCards(cfg.demo ? null : cfg.handoffDir), readDecisions(cfg.demo ? null : cfg.decisionsDir),
         nasClues(cfg.demo ? null : cfg.nas), cfg.demo ? Promise.resolve(null) : teamLiveView(cfg.teamLiveDir),
+        readSignedWork(cfg.demo ? null : cfg.workActivityDir, path.join(ROOT, 'data', 'work-public.pem')),
+        directorOriginals(cfg.demo ? null : cfg.directorDir),
       ]);
-      const board = buildBoard({ cards: cards.items, decisions: decisions.items, nas, teamLive: tl, now: Date.now() });
+      const allCards = [...cards.items, ...signed.items].sort((a, b) => a.at.localeCompare(b.at));
+      const board = buildBoard({ cards: allCards, decisions: decisions.items, originals, nas, teamLive: tl, now: Date.now() });
+      const count = m => allCards.filter(c => c.author?.method === m).length;
       return send(req, res, 200, {
         served_at: new Date().toISOString(),
         sources: {
           handoff: { state: cards.state, message: cards.message, count: cards.items.length, invalid: cards.invalid, newest_at: cards.newest_at || null },
           decisions: { state: decisions.state, message: decisions.message, count: decisions.items.length, invalid: decisions.invalid, newest_at: decisions.newest_at || null },
+          signed_work: { state: signed.state, message: signed.message, count: signed.items.length, invalid: signed.invalid, newest_at: signed.newest_at || null },
+          director: { state: originals.state, message: originals.message, entries: originals.entries ?? 0 },
           nas: { state: nas.state, message: nas.message, folders: nas.folders.length, checked_at: nas.checked_at || null },
+          provenance: { self: count('self'), signed: count('signed'), transcribed: count('transcribed'), decisions_valid: board.decision_counts.valid, decisions_not_valid: board.decision_counts.not_valid },
           team_live: tl ? { state: tl.state, observed_at: tl.generated_at || null } : { state: 'missing' },
         },
         ...board,

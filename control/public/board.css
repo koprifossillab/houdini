@@ -64,6 +64,11 @@ h3{margin:0;font-size:15px}
 .g-clue{box-shadow:inset 0 0 0 1px var(--unvln);color:var(--ink2)}
 .g-claim{background:var(--revbg);color:var(--rev)}
 .g-none{background:var(--unvbg);color:var(--unv)}
+.g-signed{background:var(--pass);color:var(--card)}
+.g-transcribed{background:var(--uvbg);color:var(--uv);box-shadow:inset 0 0 0 1px var(--uv)}
+.g-valid_decision{background:var(--acc);color:#fff}
+.g-content_matched{box-shadow:inset 0 0 0 1px var(--acc);color:var(--acc)}
+.s-recorded{background:var(--uvbg);color:var(--uv);box-shadow:inset 0 0 0 1.5px var(--uv)}
 .legend{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:13px;color:var(--ink2)}
 .shots{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
 figure{margin:0;display:flex;flex-direction:column;gap:6px}

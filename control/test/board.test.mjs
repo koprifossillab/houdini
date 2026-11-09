@@ -67,7 +67,9 @@ test('TC-VIS-024 → TC-VIS-025 replay: the screen follows the new card, old evi
 test('a candidate FAIL stays with the candidate; the approved baseline is never shown as FAIL', () => {
   const b = buildBoard({ cards: [C018, C021, C024], decisions: BASE, now: T('2026-11-09T15:15:00+09:00') });
   assert.equal(b.baseline.name, 'v6.5h');
-  assert.equal(b.baseline.grade, 'confirmed');
+  // D-1: a transcribed baseline record without a checked original is shown, but not as a valid decision
+  assert.equal(b.baseline.grade, 'transcribed');
+  assert.equal(b.baseline.valid, false);
   const v65h = b.candidates.find(c => c.name === 'v6.5h');
   assert.equal(v65h.status, 'baseline');
   assert.ok(!v65h.verdicts.some(v => v.verdict === 'FAIL'));
@@ -99,11 +101,14 @@ test('verdicts, pending and in-progress are different fields; approval comes onl
   assert.equal(s.director.kind, 'state');
   assert.equal(s.director.value, 'pending', 'a card sent to the director is pending, not approved');
   assert.equal(s.directive.grade, 'claim', 'no directive record → the task number is only claimed by the card');
-  const withHold = buildBoard({ cards: [C024], decisions: [...BASE, decision({ id: 'hold', kind: 'hold', task_id: 'TC-VIS-024', at: '2026-11-09T14:44:58+09:00', subject: '전면 수정 보류' })], now: T('2026-11-09T15:15:00+09:00') });
+  // D-1 / TC-DASH-005: a hold only counts once its original matched and a user confirmation is recorded
+  const hold = decision({ id: 'hold', kind: 'hold', task_id: 'TC-VIS-024', directive_id: 'TC-VIS-024', at: '2026-11-09T14:44:58+09:00', subject: '전면 수정 보류' });
+  const checked = { byDirective: new Map([['TC-VIS-024', { content: 'matched', check_method: 'user_confirmed', checked_at: '2026-11-10T09:00:00+09:00', sha256: 'ab'.repeat(8) }]]) };
+  const withHold = buildBoard({ cards: [C024], decisions: [...BASE, hold], originals: checked, now: T('2026-11-09T15:15:00+09:00') });
   const d = withHold.current.steps.find(x => x.key === 'director');
   assert.equal(d.kind, 'decision');
   assert.equal(d.value, 'hold');
-  assert.equal(d.grade, 'confirmed');
+  assert.equal(d.grade, 'valid_decision');
   assert.ok(!withHold.actions.some(a => a.who === 'director'), 'answered by a decision → no longer pending');
 });
 

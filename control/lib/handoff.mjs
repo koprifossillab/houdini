@@ -1,10 +1,20 @@
-// Handoff cards (tc-handoff/1) and decision records (tc-decision/1) — read only.
-// Teams write a card at the end of each report (the same four lines: done / next / to / user action).
-// Decisions are the ONLY source that confirms an approval, a rejection, a hold, a closure or the baseline.
-// The control room never writes either kind (no write API until an authentication method is approved).
+// Handoff cards (tc-handoff/1), decision records (tc-decision/1) and signed Work events — read only.
+// Teams write a card at the start of a task, at every state change, at completion / verdict request and
+// when a long task gains new evidence. The control room never writes cards or decisions.
+//
+// Provenance (TC-DASH-004 D-1) — three kinds, never merged:
+//   self        — submitted by the responsible session into its team folder. The folder and the author
+//                 fields are a convention only: all sessions share one server account, so the writer's
+//                 identity is NOT verified and is never shown as verified.
+//   signed      — produced here from a ③ Work event whose signature verified against the configured
+//                 public key. Proves the record's integrity since signing, not who the signer is.
+//                 A card FILE that merely claims "signed" is not trusted: it is read as self.
+//   transcribed — copied by a person from another record. Needs transcribed_from (source ref + time);
+//                 never shown as confirmed. Without a source it is rejected.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { clean, hex, iso, readBounded } from './sanitize.mjs';
+import { verifyEvent } from './work-event.mjs';
 
 export const TEAMS = ['TC-PROD', 'TC-QA', 'TC-WORK', 'TC-DASH'];
 export const CARD_STATES = ['in_progress', 'handed_off', 'blocked', 'done'];
@@ -15,22 +25,29 @@ export const ISSUE_SCOPES = ['project', 'candidate', 'track'];
 export const SEVERITIES = ['blocking', 'fail', 'review', 'known'];
 export const DECISION_KINDS = ['directive', 'approval', 'rejection', 'hold', 'closure', 'baseline', 'candidate_status'];
 export const CANDIDATE_STATUS = ['baseline', 'backup', 'candidate', 'rejected', 'stopped'];
-const EVIDENCE_KINDS = ['report', 'verdict', 'file', 'nas', 'decision', 'commit'];
+export const METHODS = ['self', 'signed', 'transcribed'];
+const EVIDENCE_KINDS = ['report', 'verdict', 'file', 'nas', 'decision', 'commit', 'work_event'];
 const FILE = /^[\w.-]{1,120}\.json$/;
 const TASK = /^TC-[0-9A-Z]{2,5}-\d{3}[A-Za-z0-9]{0,3}$/;
+export const DIRECTIVE = /^TC-[0-9A-Z]{2,8}(?:-[0-9A-Z]{1,8}){0,3}$/;
 const CARD_LIMIT = 64 * 1024;
 const MAX_FILES = 400;
+// the director originals folder never appears by name in any output (TC-DASH-005)
+export const DIRECTOR_FOLDER = 'TC3D_DIRECTOR_DECISIONS';
 
 const pick = (v, list) => (list.includes(v) ? v : null);
 const at = v => iso(v);
 const precision = v => (v === 'date' ? 'date' : 'time');
 
 // "<root folder>/<TC… folder>[/<sub>…]/<file>" → "<TC… folder> › <file>": readable without exposing the
-// root (the generic path mask would otherwise hide the whole reference). Anything else goes through clean().
+// root (the generic path mask would otherwise hide the whole reference). References into the director
+// originals folder are reduced to a fixed phrase — no folder or file name leaves the server.
 const NAS_REF = /^[\w-]{1,40}\/(TC[0-9A-Za-z_-]{2,120})(?:\/(?:[\w.-]+\/)*([\w.-]{1,120}))?(\s.*)?$/;
 export function refText(ref) {
-  const m = NAS_REF.exec(String(ref || ''));
-  return m ? clean(`${m[1]}${m[2] ? ` › ${m[2]}` : ''}${m[3] || ''}`, 200) : clean(ref, 200);
+  const s = String(ref || '');
+  if (/DIRECTOR_DECISIONS/i.test(s)) return '감독 원문 보관 기록 (위치 비공개)';
+  const m = NAS_REF.exec(s);
+  return m ? clean(`${m[1]}${m[2] ? ` › ${m[2]}` : ''}${m[3] || ''}`, 200) : clean(s, 200);
 }
 
 function evidence(list) {
@@ -56,56 +73,75 @@ function issues(list) {
   } : null)).filter(Boolean);
 }
 
+const source = (s, fallbackPrecision) => (s && typeof s === 'object' && s.ref ? { ref: refText(s.ref), at: at(s.at), at_precision: s.at ? precision(s.at_precision) : fallbackPrecision, sha256: hex(s.sha256, 64)?.slice(0, 16) || null } : null);
+
+// author block. Legacy cards (no author block) that carry transcribed_by are read as transcribed.
+function author(doc) {
+  const a = doc.author && typeof doc.author === 'object' ? doc.author : {};
+  let method = pick(a.method, METHODS) || (doc.transcribed_by ? 'transcribed' : 'self');
+  const claimedSigned = method === 'signed';
+  if (claimedSigned) method = 'self'; // a file cannot make itself "signed"
+  return {
+    method,
+    session: clean(a.session, 80) || null,
+    transcribed_by: method === 'transcribed' ? (pick(a.transcribed_by || doc.transcribed_by, TEAMS) || null) : null,
+    transcribed_from: method === 'transcribed' ? source(a.transcribed_from || doc.transcribed_from, 'time') : null,
+    signed_claim_ignored: claimedSigned,
+    identity_verified: false,
+  };
+}
+
+export function gradeOf(method, ev) {
+  if (method === 'signed') return 'signed';
+  if (method === 'transcribed') return 'transcribed';
+  return ev.length ? 'confirmed' : 'claim';
+}
+
 export function parseCard(doc, team, file) {
   if (!doc || doc.schema !== 'tc-handoff/1') return null;
   if (doc.team !== team || !TASK.test(String(doc.task_id || ''))) return null;
   const state = pick(doc.state, CARD_STATES);
   const when = at(doc.at);
   if (!state || !when) return null;
+  const au = author(doc);
+  // a transcription must say where it was copied from and when (D-1 ②); legacy cards fall back to their
+  // first evidence reference, otherwise the card is rejected
+  if (au.method === 'transcribed' && !au.transcribed_from) {
+    const ev0 = Array.isArray(doc.evidence) ? doc.evidence[0] : null;
+    au.transcribed_from = source(ev0 && { ...ev0, at: ev0.at || doc.at }, precision(doc.at_precision));
+    if (au.transcribed_from && !ev0.at) au.transcribed_from.at_precision = precision(doc.at_precision);
+  }
+  if (au.method === 'transcribed' && (!au.transcribed_from?.ref || !au.transcribed_from.at)) return null;
   const ev = evidence(doc.evidence);
   return {
-    file,
-    team,
-    task_id: doc.task_id,
-    title: clean(doc.title, 200),
-    state,
-    verdict: pick(doc.verdict, VERDICTS),
-    verdict_scope: pick(doc.verdict_scope, VERDICT_SCOPES),
+    file, team, task_id: doc.task_id,
+    title: clean(doc.title, 200), state,
+    verdict: pick(doc.verdict, VERDICTS), verdict_scope: pick(doc.verdict_scope, VERDICT_SCOPES),
     candidate: clean(doc.candidate, 60) || null,
-    done: clean(doc.done, 300),
-    next: clean(doc.next, 300),
-    to: pick(doc.to, TARGETS),
-    user_action: clean(doc.user_action, 300) || null,
-    evidence: ev,
-    issues: issues(doc.issues),
-    at: when,
-    at_precision: precision(doc.at_precision),
-    transcribed_by: pick(doc.transcribed_by, TEAMS),
-    // a card with no evidence is shown as an unsupported claim, never as confirmed
-    grade: ev.length ? 'confirmed' : 'claim',
+    done: clean(doc.done, 300), next: clean(doc.next, 300), to: pick(doc.to, TARGETS), user_action: clean(doc.user_action, 300) || null,
+    evidence: ev, issues: issues(doc.issues),
+    at: when, at_precision: precision(doc.at_precision),
+    author: au,
+    grade: gradeOf(au.method, ev),
   };
 }
 
+// Decisions are written by ④ from the director's text (the director works outside the server), so they
+// are always transcriptions. Their validity is decided against the originals (lib/director.mjs).
 export function parseDecision(doc, file) {
   if (!doc || doc.schema !== 'tc-decision/1') return null;
   const kind = pick(doc.kind, DECISION_KINDS);
   const when = at(doc.at);
   const src = doc.source && typeof doc.source === 'object' ? { ref: refText(doc.source.ref), sha256: hex(doc.source.sha256, 64)?.slice(0, 16) || null } : null;
-  // a decision without a cited source is not accepted at all
-  if (!kind || !when || !src?.ref) return null;
+  if (!kind || !when || !src?.ref) return null; // no cited source → not accepted at all
   if (doc.task_id && !TASK.test(String(doc.task_id))) return null;
   const out = {
-    file,
-    id: clean(String(doc.id || file), 80),
-    task_id: doc.task_id || null,
-    kind,
-    subject: clean(doc.subject, 300),
-    by: doc.by === 'owner' ? 'owner' : 'director',
-    at: when,
-    at_precision: precision(doc.at_precision),
-    source: src,
-    transcribed_by: pick(doc.transcribed_by, TEAMS),
-    grade: 'confirmed',
+    file, id: clean(String(doc.id || file), 80), task_id: doc.task_id || null,
+    directive_id: DIRECTIVE.test(String(doc.directive_id || '')) ? doc.directive_id : null,
+    kind, subject: clean(doc.subject, 300), by: doc.by === 'owner' ? 'owner' : 'director',
+    at: when, at_precision: precision(doc.at_precision), source: src,
+    transcribed_by: pick(doc.transcribed_by, TEAMS) || 'TC-DASH',
+    grade: 'transcribed',
   };
   if (kind === 'baseline') {
     const b = doc.baseline || {};
@@ -126,7 +162,6 @@ async function jsonFiles(dir) {
   try { list = await fs.readdir(dir, { withFileTypes: true }); } catch (e) { return { missing: e.code === 'ENOENT', files: [] }; }
   return { missing: false, files: list.filter(e => e.isFile() && !e.isSymbolicLink() && FILE.test(e.name)).map(e => e.name).sort().slice(-MAX_FILES) };
 }
-
 async function readDoc(p) {
   try { return JSON.parse((await readBounded(p, CARD_LIMIT)).toString('utf8')); } catch { return undefined; }
 }
@@ -161,4 +196,49 @@ export async function readDecisions(dir) {
   }
   items.sort((a, b) => a.at.localeCompare(b.at));
   return { state: 'ok', message: invalid ? `근거가 없거나 형식이 틀린 기록 ${invalid}건은 표시하지 않음` : '판정 기록', items, invalid, newest_at: items.at(-1)?.at || null };
+}
+
+// ③ signed Work events → cards (method 'signed'). The event files are only read; the original envelope
+// hash and sequence stay attached as the card's source. A failed verification produces no card.
+const SIGNED_FILES = ['task-start.json', 'last-complete-start.json', 'last-complete.json', 'latest.json'];
+export function cardFromEvent(p, hash) {
+  const state = p.event_type === 'complete' ? 'done' : 'in_progress';
+  const when = iso(p.occurred_at);
+  return {
+    file: `서명 Work 기록 #${p.sequence}`,
+    team: 'TC-WORK',
+    task_id: clean(p.task_id, 100),
+    title: clean(p.summary, 200),
+    state,
+    verdict: p.validation === 'technical_pass' ? 'PASS' : p.validation === 'technical_fail' ? 'FAIL' : null,
+    verdict_scope: p.validation === 'technical_pass' || p.validation === 'technical_fail' ? 'technical' : null,
+    candidate: null,
+    done: state === 'done' ? clean(p.summary, 300) : '',
+    next: clean((p.next || [])[0] || '', 300),
+    to: null, user_action: null,
+    evidence: [{ kind: 'work_event', ref: `서명 Work 기록 #${p.sequence} · ${p.event_type}`, sha256: hash.slice(0, 16), at: when },
+      ...(p.artifacts || []).slice(0, 5).map(a => ({ kind: 'file', ref: clean(a.label, 120), sha256: a.sha256.slice(0, 16), at: null }))],
+    issues: [],
+    at: when, at_precision: 'time',
+    author: { method: 'signed', session: null, transcribed_by: null, transcribed_from: null, signed_claim_ignored: false, identity_verified: false, event: { sequence: p.sequence, hash: hash.slice(0, 16), type: p.event_type } },
+    grade: 'signed',
+  };
+}
+
+export async function readSignedWork(dir, keyfile) {
+  if (!dir || !keyfile) return { state: 'missing', message: '서명 Work 기록이 연결되지 않음', items: [], invalid: 0 };
+  let key;
+  try { key = await fs.readFile(keyfile); } catch { return { state: 'error', message: '서명 확인 키를 읽을 수 없음', items: [], invalid: 0 }; }
+  const seen = new Map();
+  let invalid = 0;
+  for (const f of SIGNED_FILES) {
+    let raw;
+    try { raw = (await readBounded(path.join(dir, f), 40000)).toString('utf8'); } catch { continue; }
+    try {
+      const { payload, hash } = verifyEvent(JSON.parse(raw), key);
+      if (!seen.has(hash)) seen.set(hash, cardFromEvent(payload, hash));
+    } catch { invalid += 1; }
+  }
+  const items = [...seen.values()].filter(c => c.at).sort((a, b) => a.at.localeCompare(b.at));
+  return { state: 'ok', message: invalid ? `서명 검증 실패 ${invalid}건은 표시하지 않음` : '서명 Work 기록 — 무결성 확인 · 신원 증명 아님', items, invalid, newest_at: items.at(-1)?.at || null };
 }

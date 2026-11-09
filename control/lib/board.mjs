@@ -10,6 +10,12 @@
 //   - session / process liveness is reported as a session line only, never as work state.
 //   - a candidate's FAIL never changes the baseline; the baseline comes from decision records only.
 //   - NAS folder names are clues only; approvals come from decision records only.
+//   - provenance (D-1): self-submitted / signed / transcribed records carry different grades and labels;
+//     only self-submitted cards with evidence or verified signed records can make "now" in progress.
+//   - a decision counts as a valid director decision only when its original matched AND a user
+//     confirmation is recorded (TC-DASH-005); otherwise it is shown as a record only and never answers a
+//     pending action, closes a task or confirms a baseline.
+import { decisionValidity } from './director.mjs';
 
 export const LIVE_WINDOW_MS = 2 * 3600 * 1000;
 export const PRODUCTION_TEAMS = ['TC-PROD', 'TC-QA', 'TC-WORK'];
@@ -25,20 +31,42 @@ const ev = (grade, source, time, precision = 'time') => ({ grade, source, at: ti
 const latest = list => list.reduce((a, b) => (!a || b.at >= a.at ? b : a), null);
 const byTask = (list, id) => list.filter(x => x.task_id === id);
 
+export const PROVENANCE = {
+  confirmed: '직접 작성 · 담당 세션 제출 (작성자 신원 미검증)',
+  claim: '직접 작성 · 근거 없음',
+  signed: '서명 기록 · 무결성 확인 (작성자 신원 증명 아님)',
+  transcribed: '전사 기록 · 다른 기록에서 옮겨 적음',
+};
 function cardEvidence(c) {
   const src = c.evidence.length ? c.evidence.map(e => e.ref).slice(0, 3).join(' · ') : '근거 없는 카드';
-  return ev(c.grade, `인계 카드 ${c.team}/${c.file}${c.evidence.length ? ` → ${src}` : ''}`, c.at, c.at_precision);
+  const a = c.author || { method: 'self' };
+  const out = ev(c.grade, `${a.method === 'signed' ? '' : '인계 카드 '}${c.team}/${c.file}${c.evidence.length ? ` → ${src}` : ''}`, c.at, c.at_precision);
+  out.method = a.method;
+  out.provenance = PROVENANCE[c.grade];
+  if (a.method === 'transcribed') out.transcribed = { by: a.transcribed_by, from: a.transcribed_from };
+  if (a.method === 'signed') out.signed = a.event;
+  return out;
 }
-const decisionEvidence = d => ev('confirmed', `판정 기록 ${d.file} → ${d.source.ref}`, d.at, d.at_precision);
+function decisionEvidence(d) {
+  const g = d.validity === 'valid' ? 'valid_decision' : d.validity === 'content_matched' ? 'content_matched' : 'transcribed';
+  const out = ev(g, `판정 기록 ${d.file} (${d.transcribed_by} 기록) → ${d.source.ref}`, d.at, d.at_precision);
+  out.method = 'transcribed';
+  out.validity = d.validity;
+  out.provenance = d.validity_label;
+  out.original = d.original;
+  return out;
+}
+const LIVE_GRADES = ['confirmed', 'signed'];
+const VALID = d => d.validity === 'valid';
 
 export function nowState(card, now, outside = false) {
   if (!card) return { state: 'unverified', label: outside ? '관측 불가' : '미확인', basis: '인계 카드 없음', ...ev('none', '근거 없음', null) };
   const age = now - Date.parse(card.at);
-  if (card.state === 'in_progress' && card.grade === 'confirmed' && age >= 0 && age <= LIVE_WINDOW_MS) {
+  if (card.state === 'in_progress' && LIVE_GRADES.includes(card.grade) && age >= 0 && age <= LIVE_WINDOW_MS) {
     return { state: 'in_progress', label: '진행 중', basis: `진행 중 카드 · ${Math.round(age / 60000)}분 전 기록`, ...cardEvidence(card) };
   }
   const basis = card.state === 'in_progress'
-    ? (card.grade !== 'confirmed' ? '진행 중이라는 카드에 근거가 없음' : `진행 중 기록이 ${Math.floor(age / 3600000)}시간 넘게 갱신되지 않음`)
+    ? (card.grade === 'transcribed' ? '전사 기록은 지금 상태의 근거가 아님' : !LIVE_GRADES.includes(card.grade) ? '진행 중이라는 카드에 근거가 없음' : `진행 중 기록이 ${Math.floor(age / 3600000)}시간 넘게 갱신되지 않음`)
     : '마지막 기록 이후 새 근거 없음';
   return { state: 'unverified', label: outside ? '관측 불가' : '미확인', basis, ...ev('none', '최근 근거 없음', null) };
 }
@@ -57,8 +85,9 @@ function steps(id, cards, decisions) {
   const prod = latest(tc.filter(c => c.team === 'TC-PROD'));
   const qa = latest(tc.filter(c => c.team === 'TC-QA'));
   const directive = latest(td.filter(d => d.kind === 'directive'));
-  const judged = latest(td.filter(d => ['approval', 'rejection', 'hold'].includes(d.kind)));
-  const closure = latest(td.filter(d => d.kind === 'closure'));
+  const judged = latest(td.filter(d => ['approval', 'rejection', 'hold'].includes(d.kind) && VALID(d)));
+  const recorded = latest(td.filter(d => ['approval', 'rejection', 'hold'].includes(d.kind) && !VALID(d)));
+  const closure = latest(td.filter(d => d.kind === 'closure' && VALID(d)));
   const toDirector = latest(tc.filter(c => c.to === 'director'));
   const none = (why = '근거 없음') => ({ kind: 'state', value: 'none', text: '미확인', ...ev('none', why, null) });
   return [
@@ -68,17 +97,19 @@ function steps(id, cards, decisions) {
     { key: 'self', label: '자체 검증', ...(prod?.verdict ? { kind: 'verdict', value: prod.verdict, text: prod.verdict, scope: prod.verdict_scope, ...cardEvidence(prod) } : none(prod ? '제작 카드에 자체 검증 판정 없음' : '근거 없음')) },
     { key: 'qa', label: 'QA 독립 검증', ...(qa?.verdict ? { kind: 'verdict', value: qa.verdict, text: qa.verdict, scope: qa.verdict_scope, ...cardEvidence(qa) } : qa ? { kind: 'state', value: qa.state, text: '판정 없음', ...cardEvidence(qa) } : none('QA 카드 없음')) },
     { key: 'director', label: '감독 판정', ...(judged ? { kind: 'decision', value: judged.kind, text: { approval: '승인', rejection: '반려', hold: '보류' }[judged.kind], ...decisionEvidence(judged) }
-      : toDirector ? { kind: 'state', value: 'pending', text: '대기', ...cardEvidence(toDirector) } : none()) },
+      : toDirector ? { kind: 'state', value: 'pending', text: recorded ? '대기 (유효하지 않은 기록만 있음)' : '대기', ...cardEvidence(toDirector) }
+        : recorded ? { kind: 'state', value: 'recorded', text: '기록만 · 유효 판정 아님', ...decisionEvidence(recorded) } : none()) },
     { key: 'result', label: '결과', ...(closure ? { kind: 'decision', value: 'closure', text: '종료', ...decisionEvidence(closure) } : { kind: 'state', value: 'open', text: '미정', ...ev('none', '종료 기록 없음', null) }) },
   ];
 }
 
-export function buildBoard({ cards = [], decisions = [], nas = null, teamLive = null, now = Date.now() } = {}) {
+export function buildBoard({ cards = [], decisions: rawDecisions = [], originals = null, nas = null, teamLive = null, now = Date.now() } = {}) {
+  const decisions = rawDecisions.map(d => { const v = decisionValidity(d, originals); return { ...d, validity: v.validity, validity_label: v.label, original: v.original }; });
   const prodCards = cards.filter(c => PRODUCTION_TEAMS.includes(c.team));
 
   // baseline & candidates: decision records only
   const base = latest(decisions.filter(d => d.kind === 'baseline'));
-  const baseline = base ? { name: base.baseline.name, commit: base.baseline.commit, label: base.baseline.label || base.subject, ...decisionEvidence(base) } : { name: null, label: '기준본 판정 기록 없음', ...ev('none', '판정 기록 없음', null) };
+  const baseline = base ? { name: base.baseline.name, commit: base.baseline.commit, label: base.baseline.label || base.subject, valid: VALID(base), ...decisionEvidence(base) } : { name: null, valid: false, label: '기준본 판정 기록 없음', ...ev('none', '판정 기록 없음', null) };
   const candStatus = new Map();
   for (const d of decisions.filter(x => x.kind === 'candidate_status')) candStatus.set(d.candidate.name, d);
 
@@ -96,11 +127,11 @@ export function buildBoard({ cards = [], decisions = [], nas = null, teamLive = 
   const runCited = run ? cards.find(c => c.evidence.some(e => e.ref.includes(run.name))) : null;
   const execution = {
     now: { state: 'unverified', label: '미확인', basis: 'PC Houdini·Karma 상태 전송 장치 없음 — 세션·프로세스 생존은 실행 근거가 아님', ...ev('none', '근거 없음', null) },
-    last_run: run ? { name: run.name, run_lock: run.run_lock, ...(runCited ? { ...cardEvidence(runCited), at: run.mtime, grade: 'confirmed', source: `${cardEvidence(runCited).source} (폴더 시각)` } : ev('clue', `NAS 폴더 이름 '${run.clue_label}' · RUN.lock ${run.run_lock ? '있음' : '없음'}`, run.mtime)) } : null,
+    last_run: run ? { name: run.name, run_lock: run.run_lock, ...(runCited ? { ...cardEvidence(runCited), at: run.mtime, source: `${cardEvidence(runCited).source} (폴더 시각)` } : ev('clue', `NAS 폴더 이름 '${run.clue_label}' · RUN.lock ${run.run_lock ? '있음' : '없음'}`, run.mtime)) } : null,
   };
 
   const done = latest(prodCards.filter(c => c.state === 'done'));
-  const closure = latest(decisions.filter(d => d.kind === 'closure'));
+  const closure = latest(decisions.filter(d => d.kind === 'closure' && VALID(d)));
   const last_done = closure && (!done || closure.at > done.at)
     ? { task_id: closure.task_id, title: closure.subject, kind: 'closure', ...decisionEvidence(closure) }
     : done ? { task_id: done.task_id, title: done.title, team: done.team, verdict: done.verdict, verdict_scope: done.verdict_scope, ...cardEvidence(done) } : null;
@@ -115,7 +146,7 @@ export function buildBoard({ cards = [], decisions = [], nas = null, teamLive = 
   for (const c of headList) {
     if (c.to && ['handed_off', 'blocked'].includes(c.state)) {
       const answered = c.to === 'director'
-        ? decisions.some(d => d.task_id === c.task_id && ['approval', 'rejection', 'hold', 'closure'].includes(d.kind) && d.at >= c.at)
+        ? decisions.some(d => d.task_id === c.task_id && ['approval', 'rejection', 'hold', 'closure'].includes(d.kind) && VALID(d) && d.at >= c.at)
         : cards.some(x => x.team === c.to && x.task_id === c.task_id && x.at >= c.at);
       if (!answered) actions.push({ who: c.to, who_label: WHO[c.to], what: c.next || c.title, task_id: c.task_id, since: c.at, from: c.team, ...cardEvidence(c) });
     }
@@ -165,7 +196,8 @@ export function buildBoard({ cards = [], decisions = [], nas = null, teamLive = 
     return {
       name,
       status: d ? d.candidate.status : 'unapproved',
-      status_label: d ? ({ baseline: '기준본', backup: '비상 백업', candidate: '후보', rejected: '불채택', stopped: '중단' }[d.candidate.status]) : '판정 기록 없음 · 미승인',
+      status_valid: d ? VALID(d) : false,
+      status_label: d ? `${{ baseline: '기준본', backup: '비상 백업', candidate: '후보', rejected: '불채택', stopped: '중단' }[d.candidate.status]}${VALID(d) ? '' : ' · 기록만 (유효 판정 아님)'}` : '판정 기록 없음 · 미승인',
       commit: d?.candidate.commit || null,
       note: d?.candidate.note || '',
       status_evidence: d ? decisionEvidence(d) : ev('none', '판정 기록 없음', null),
@@ -179,5 +211,7 @@ export function buildBoard({ cards = [], decisions = [], nas = null, teamLive = 
   const mf = (nas?.folders || []).find(f => f.images.some(i => i.listed));
   const latest_media = mf ? { name: mf.name, images: mf.images.filter(i => i.listed).map(i => ({ id: i.id, file: i.file })), ...ev('clue', `NAS 폴더 '${mf.clue_label}' · SHA 목록 등재 그림`, mf.mtime) } : null;
 
-  return { now: new Date(now).toISOString(), live_window_min: LIVE_WINDOW_MS / 60000, baseline, current, execution, last_done, actions, issues, history, teams, candidates, latest_media };
+  const decision_counts = { valid: decisions.filter(VALID).length, not_valid: decisions.filter(d => !VALID(d)).length };
+
+  return { decision_counts, now: new Date(now).toISOString(), live_window_min: LIVE_WINDOW_MS / 60000, baseline, current, execution, last_done, actions, issues, history, teams, candidates, latest_media };
 }

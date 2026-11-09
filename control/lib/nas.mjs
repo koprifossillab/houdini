@@ -15,6 +15,15 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { clean, readBounded } from './sanitize.mjs';
 
+// TC-DASH-005: the director originals folder is never part of the clue search, whatever its name pattern.
+// Excluded by fixed name, by any name containing DIRECTOR_DECISIONS, by extra names from the config, and by
+// real path when the originals folder is configured. Excluded folders get no id, so no image or document in
+// them can be requested either.
+export const ALWAYS_EXCLUDED = ['TC3D_DIRECTOR_DECISIONS'];
+export function excludedName(name, extra = []) {
+  return ALWAYS_EXCLUDED.includes(name) || /DIRECTOR_DECISIONS/i.test(name) || extra.includes(name);
+}
+
 export const NAME = /^TC[0-9A-Za-z_-]{2,120}$/;
 const LAUNCH_NAME = /^launch_[\w-]{1,80}\.bat$/;
 const SEG = /^[\w.-]{1,120}$/;
@@ -135,15 +144,20 @@ const cache = new Map();
 export async function nasClues(cfg, now = Date.now()) {
   const root = cfg?.film || null;
   if (!root) return { state: 'missing', message: 'NAS 영상 작업 폴더가 설정되지 않음', folders: [], launchers: [] };
-  const key = `${root}\0${cfg.launch || ''}`;
+  const key = `${root}\0${cfg.launch || ''}\0${cfg.directorDir || ''}\0${(cfg.exclude || []).join(',')}`;
   const hit = cache.get(key);
   if (hit && now - hit.at < CACHE_MS) return hit.value;
   let rootOk = false;
   try { rootOk = (await fs.lstat(root)).isDirectory(); } catch { rootOk = false; }
   if (!rootOk) return { state: 'error', message: 'NAS 영상 작업 폴더를 읽을 수 없음', folders: [], launchers: [] };
   const names = [];
+  const extra = Array.isArray(cfg.exclude) ? cfg.exclude : [];
+  let directorReal = null;
+  if (cfg.directorDir) { try { directorReal = await fs.realpath(cfg.directorDir); } catch { directorReal = null; } }
   for (const e of await fs.readdir(root, { withFileTypes: true }).catch(() => [])) {
-    if (e.isDirectory() && !e.isSymbolicLink() && NAME.test(e.name)) names.push(e.name);
+    if (!e.isDirectory() || e.isSymbolicLink() || !NAME.test(e.name) || excludedName(e.name, extra)) continue;
+    if (directorReal) { try { if ((await fs.realpath(path.join(root, e.name))) === directorReal) continue; } catch { continue; } }
+    names.push(e.name);
   }
   const stats = await Promise.all(names.map(async n => { try { return [n, (await fs.lstat(path.join(root, n))).mtimeMs]; } catch { return [n, 0]; } }));
   stats.sort((a, b) => b[1] - a[1]);

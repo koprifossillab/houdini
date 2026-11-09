@@ -60,3 +60,46 @@ cd control && env HOST=127.0.0.1 PORT=18096 HPC_AUTH=off HPC_ALLOW_OPEN=1 HPC_RE
 ## 금지 (이번 승인 범위 밖)
 
 운영 배포 · 컨테이너 교체 · 운영 데이터 수정 · 쓰기 API · 인증 없는 쓰기 · ① PROD BAT 수정.
+
+---
+
+# D-1 · TC-DASH-005 추가 (0.2.0-staging.2, 브랜치 work/20261110-houdini-dash-d1)
+
+## 출처 3구분 (lib/handoff.mjs, lib/board.mjs)
+
+| 방법 | 출처 | 화면 표지 | '지금 진행 중' 근거가 되나 |
+|---|---|---|---|
+| `self` | 팀 폴더의 카드 | 직접 작성 (작성자 신원 미검증) | 근거가 있고 2시간 이내면 예 |
+| `signed` | ③ 서명 Work 기록, 서버가 공개키로 검증 | 서명 확인 (무결성만 · 신원 증명 아님) | 예 |
+| `transcribed` | 다른 기록에서 옮겨 적은 카드 (`transcribed_from` 필수) | 전사 | 아니오 |
+
+파일에 `"method": "signed"` 라고 적어도 직접 작성으로 읽는다. ③ 의 원래 서명 파일은 읽기만 한다.
+
+## 감독 판정의 유효성 (lib/director.mjs)
+
+판정 기록은 ④ 가 옮긴 전사 기록이다. `directive_id` 로 감독 원문 목록(`INDEX.json`, `tc-director-index/1`)과 대조한다.
+
+| 결과 | 표시 | 승인 대기를 닫나 · 종료 · 기준본 확정 |
+|---|---|---|
+| 원문 목록·파일 없음 | 전사 · 원문 미확인 | 아니오 |
+| SHA256 불일치 | 전사 · 원문과 내용 불일치 | 아니오 |
+| SHA256 일치, 사용자 확인 없음 | 원문 내용 일치 · 사용자 확인 전 | 아니오 |
+| SHA256 일치 + `check_method: user_confirmed` | 유효한 감독 판정 (신원·권한 증명 아님) | 예 |
+
+대조 모듈은 목록에 있는 파일만 읽고(평범한 이름 `.md`/`.txt`, 256 KB 이하, 심볼릭 링크·폴더 밖 실경로 거부),
+결과·시각·확인 방법만 낸다. 본문·파일 이름·경로는 내보내지 않는다. 대조 전용 API 는 없다.
+
+## 감독 원문 폴더 차단
+
+- NAS 단서 검색에서 `TC3D_DIRECTOR_DECISIONS`, 이름에 `DIRECTOR_DECISIONS` 가 들어간 모든 폴더, `HPC_NAS_EXCLUDE` 이름, 그리고 `HPC_DIRECTOR_DIR` 과 실경로가 같은 폴더를 제외한다.
+- 제외된 폴더의 파일에는 ID 가 생기지 않으므로 `/nasimg/` 로 직접 요청할 수 없다.
+- 근거 참조가 원문 폴더를 가리키면 "감독 원문 보관 기록 (위치 비공개)" 로만 표시한다.
+
+## 새 환경 변수
+
+`HPC_DIRECTOR_DIR` (원문 보관 위치, 대조 전용), `HPC_NAS_EXCLUDE` (쉼표로 구분한 추가 제외 폴더 이름).
+③ 서명 기록은 기존 `HPC_WORK_ACTIVITY_DIR` 과 `data/work-public.pem` 을 그대로 쓴다.
+
+## 인계 카드
+
+형식은 `HANDOFF_FORMAT_KO.md`, 점검은 `node control/scripts/check-card.mjs <카드>` (읽기만).

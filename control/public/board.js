@@ -21,7 +21,8 @@ function when(v, precision) {
   const p = parts(v);
   return precision === 'date' ? `${p.month}/${p.day} (시각 미기록)` : `${p.month}/${p.day} ${p.hour}:${p.minute}`;
 }
-const GRADE = { confirmed: '확정', clue: '단서', claim: '근거 없는 카드', none: '근거 없음' };
+// provenance / evidence grades (D-1): never merged into one 'confirmed' label
+const GRADE = { confirmed: '직접 작성', claim: '근거 없는 카드', signed: '서명 확인', transcribed: '전사', valid_decision: '유효 판정', content_matched: '원문 일치·확인 전', clue: '단서', none: '근거 없음' };
 const grade = g => h('span', { class: `g g-${g || 'none'}`, text: GRADE[g] || '근거 없음' });
 // short evidence line on screen, the full chain in the tooltip
 function shortSource(src) {
@@ -33,11 +34,12 @@ function shortSource(src) {
   const first = refs[0].includes('›') ? refs[0].split('›').pop().trim() : refs[0];
   return `${kind} · ${first}${refs.length > 1 ? ` 외 ${refs.length - 1}` : ''}`;
 }
-const evl = x => h('span', { class: 'ev', title: x?.source || '' }, grade(x?.grade), `${shortSource(x?.source)} · ${x?.at ? when(x.at, x.at_precision) : '시각 없음'}`);
+const fromText = x => (x?.transcribed?.from ? ` · 원문 ${x.transcribed.from.ref.split('›').pop().trim()} ${when(x.transcribed.from.at, x.transcribed.from.at_precision)}` : '');
+const evl = x => h('span', { class: 'ev', title: [x?.provenance, x?.source].filter(Boolean).join('\n') }, grade(x?.grade), `${shortSource(x?.source)} · ${x?.at ? when(x.at, x.at_precision) : '시각 없음'}${fromText(x)}`);
 const VSYM = { PASS: '✓', FAIL: '✕', REVIEW: '!', UNVERIFIED: '◇' };
 const VSCOPE = { technical: '기술', visual: '시각', physics: '물리', selfcheck: '자체 검사', run: '실행' };
 const verdict = (v, scope) => h('span', { class: `b verdict v-${v}`, text: `${VSYM[v] || ''} ${v}${scope ? ` · ${VSCOPE[scope] || scope}` : ''}` });
-const SSYM = { in_progress: '▶', pending: '…', handed_off: '→', issued: '✓', blocked: '■', done: '✓', closure: '✓', approval: '✓', rejection: '✕', hold: '‖', unverified: '?', none: '?', open: '—', unapproved: '?' };
+const SSYM = { recorded: '◌', in_progress: '▶', pending: '…', handed_off: '→', issued: '✓', blocked: '■', done: '✓', closure: '✓', approval: '✓', rejection: '✕', hold: '‖', unverified: '?', none: '?', open: '—', unapproved: '?' };
 const SLABEL = { in_progress: '진행 중', handed_off: '넘김', blocked: '차단', done: '완료', pending: '대기', unverified: '미확인', none: '미확인', open: '미정' };
 const state = (s, label) => h('span', { class: `b s-${s}`, text: `${SSYM[s] || ''} ${label || SLABEL[s] || s}` });
 const SEV = { blocking: '✕ 차단', fail: '✕ FAIL', review: '! REVIEW', known: '■ 알려진 결함' };
@@ -82,8 +84,10 @@ function home(v) {
   v.append(
     h('section', { class: 'row' },
       h('div', { class: 'stack' }, h('span', { class: 'lbl', text: '현재 프로젝트 · 기준본' }), h('h1', { text: 'Thermal Collapse · Houdini 제작' }),
-        h('span', {}, b.baseline.name ? `기준본 ${b.baseline.name}${b.baseline.commit ? ` ${b.baseline.commit}` : ''} · ${b.baseline.label}` : b.baseline.label), evl(b.baseline))),
-    h('section', { class: 'legend' }, h('span', { class: 'lbl', text: '근거 등급' }), h('span', {}, grade('confirmed'), '판정 기록·인계 카드(근거 첨부)'), h('span', {}, grade('clue'), '폴더 이름·파일 존재 — 상태·승인을 확정하지 않음'), h('span', {}, grade('claim'), '근거 없는 카드')),
+        h('span', {}, b.baseline.name ? `${b.baseline.valid ? '기준본' : '기준본 기록'} ${b.baseline.name}${b.baseline.commit ? ` ${b.baseline.commit}` : ''} · ${b.baseline.label}` : b.baseline.label), b.baseline.name && !b.baseline.valid ? h('span', { class: 'ev', text: `유효한 감독 판정 아님 — ${b.baseline.provenance || '원문 미확인'}` }) : null, evl(b.baseline))),
+    h('section', { class: 'legend' }, h('span', { class: 'lbl', text: '출처' }),
+      h('span', {}, grade('confirmed'), '담당 세션 제출 (작성자 신원 미검증)'), h('span', {}, grade('signed'), '③ 서명 검증 — 무결성만, 신원 증명 아님'), h('span', {}, grade('transcribed'), '다른 기록에서 옮겨 적음 — 확정 아님'),
+      h('span', {}, grade('valid_decision'), '감독 원문 일치 + 사용자 확인'), h('span', {}, grade('clue'), '폴더 이름·파일 존재 — 상태·승인 확정 안 함'), h('span', {}, grade('claim'), '근거 없는 카드')),
   );
   const acts = b.actions;
   const count = who => acts.filter(a => a.who === who).length;
@@ -193,19 +197,22 @@ function tech(v) {
       h('article', { class: 'card' }, h('span', { class: 'lbl', text: '세션 · 프로세스' }), h('span', { text: teamsApi ? `팀 미지정 세션 ${teamsApi.unbound_live_sessions ?? '—'}` : '—' }), h('span', { class: 'ev', text: '프로세스 생존 ≠ 작업 진행' }))),
     h('section', { class: 'card' }, h('h2', { text: '자료 출처 상태' }), h('div', { class: 'scroll' }, h('table', {}, h('thead', {}, h('tr', {}, ['출처', '상태', '설명', '마지막 시각'].map(t => h('th', { text: t })))),
       h('tbody', {}, [
-        ...Object.entries(board.sources).filter(([k]) => k !== 'team_live').map(([k, s]) => h('tr', {}, h('td', { text: { handoff: '인계 카드 (신규)', decisions: '판정 기록 (신규)', nas: 'NAS 단서 (신규)', team_live: '팀 세션 수집기' }[k] }), h('td', { text: s.state }), h('td', { text: s.message || '' }), h('td', { text: s.newest_at ? when(s.newest_at) : s.checked_at ? when(s.checked_at) : s.observed_at ? when(s.observed_at) : '—' }))),
+        ...Object.entries(board.sources).filter(([k]) => !['team_live', 'provenance'].includes(k)).map(([k, s]) => h('tr', {}, h('td', { text: { handoff: '인계 카드', decisions: '판정 기록 (④ 전사)', signed_work: '서명 Work 기록 (③)', director: '감독 원문 대조', nas: 'NAS 단서' }[k] || k }), h('td', { text: s.state }), h('td', { text: s.message || '' }), h('td', { text: s.newest_at ? when(s.newest_at) : s.checked_at ? when(s.checked_at) : s.observed_at ? when(s.observed_at) : '—' }))),
+        board.sources.provenance ? h('tr', {}, h('td', { text: '출처 구분 집계' }), h('td', { text: 'ok' }), h('td', { text: `직접 작성 ${board.sources.provenance.self} · 서명 ${board.sources.provenance.signed} · 전사 ${board.sources.provenance.transcribed} · 유효 판정 ${board.sources.provenance.decisions_valid} / 유효하지 않은 판정 기록 ${board.sources.provenance.decisions_not_valid}` }), h('td', { text: '—' })) : null,
         ...(overview?.sources || []).map(s => h('tr', {}, h('td', { text: s.label }), h('td', { text: s.state }), h('td', { text: s.detail || '' }), h('td', { text: s.observed_at ? when(s.observed_at) : '—' }))),
       ])))),
     h('section', { class: 'card dash' }, h('span', { class: 'lbl', text: '운영판 보존 기준' }), h('span', { class: 'mono', text: '0.1.6-rc.2 · 5dac91d' }), h('span', { class: 'ev', text: '이 판은 그 커밋에서 갈라진 스테이징 브랜치입니다. 운영 컨테이너·이미지·데이터는 바뀌지 않았습니다.' })));
 }
 
 const DATA_ROWS = [
-  ['홈 · 현재 작업', '인계 카드 (생산 팀의 최신 카드)', '확정 / 근거 없는 카드'],
-  ['홈 · 실제 작업 상태', '진행 중 카드 + 근거 + 2시간 이내', '없으면 미확인'],
-  ['홈 · 실행 상태', 'PC 전송 장치 없음 → 늘 미확인 · 마지막 실행은 NAS 보존 폴더', '단서 (카드가 인용하면 확정)'],
-  ['홈 · 기준본', '판정 기록 kind=baseline', '확정 · 후보 FAIL 과 무관'],
+  ['홈 · 현재 작업', '인계 카드 (생산 팀의 최신 카드) · ③ 서명 Work 기록', '직접 작성 / 서명 확인 / 전사 / 근거 없는 카드'],
+  ['홈 · 실제 작업 상태', '진행 중 카드 + 근거 + 2시간 이내 (직접 작성 또는 서명 기록만)', '전사·근거 없음·오래됨 → 미확인'],
+  ['홈 · 실행 상태', 'PC 전송 장치 없음 → 늘 미확인 · 마지막 실행은 NAS 보존 폴더', '단서 (카드가 인용하면 그 카드의 등급)'],
+  ['홈 · 기준본', '판정 기록 kind=baseline + 감독 원문 대조', '원문 일치 + 사용자 확인일 때만 유효 · 후보 FAIL 과 무관'],
+  ['감독 판정 (승인·보류·종료)', '④ 전사 판정 기록 ↔ 원문 목록(INDEX)의 SHA256', '유효 = 원문 일치 + 사용자 확인 · SHA 일치는 내용 일치일 뿐 신원·권한 증명 아님'],
+  ['감독 원문', '대조 전용 · 목록에 있는 파일만 읽음', '본문·파일 이름·위치는 화면·API 에 나오지 않음 · NAS 단서 검색에서 제외'],
   ['진행 단계 · 이력', '판정 기록 + 팀별 인계 카드', '칸마다 등급·시각'],
-  ['다음 행동', '카드의 to · user_action, 받는 쪽 답이 없을 때', '확정 / 근거 없는 카드'],
+  ['다음 행동', '카드의 to · user_action — 받는 쪽 카드나 유효한 감독 판정이 없을 때', '유효하지 않은 판정 기록은 답으로 치지 않음'],
   ['문제', '카드 issues (scope: project · candidate · track)', '후보 문제는 후보에만'],
   ['프리뷰 검수', '후보 지위 = 판정 기록 · 판정 = 카드 · 그림 = 카드가 가리키는 NAS 폴더', '그림은 SHA 목록 등재·해시 일치만'],
   ['팀 현황 · 세션 줄', '/api/teams (기존)', '작업 상태에 쓰지 않음'],
@@ -218,7 +225,7 @@ function data(v) {
       h('div', { class: 'scroll' }, h('table', {}, h('thead', {}, h('tr', {}, ['폴더', '이름이 가리키는 후보', '본문의 작업 번호', 'RUN.lock', '폴더 시각', '등급'].map(t => h('th', { text: t })))),
         h('tbody', {}, (nas?.folders || []).slice(0, 30).map(f => h('tr', {}, h('td', { class: 'mono', text: f.name }), h('td', { text: f.clue_label }), h('td', { text: f.task_ids.join(', ') || '—' }), h('td', { text: f.run_lock ? '있음' : '—' }), h('td', { text: when(f.mtime) }), h('td', {}, grade('clue')))))))),
     h('section', { class: 'card' }, h('h2', { text: '인계 카드 · 판정 기록 형식' }),
-      h('pre', { class: 'card mono', text: '<인계 카드 폴더>/<팀>/<YYYYMMDD-HHMM>_<작업번호>.json\n{ "schema": "tc-handoff/1", "team": "TC-PROD", "task_id": "TC-VIS-025",\n  "title": "…", "state": "in_progress | handed_off | blocked | done",\n  "verdict": "PASS | FAIL | REVIEW | UNVERIFIED | null", "verdict_scope": "technical | visual | physics | selfcheck | run",\n  "candidate": "후보 이름 | null", "done": "완료한 작업", "next": "다음 작업", "to": "TC-QA | TC-WORK | director | …",\n  "user_action": "사용자 직접 조치 | null", "evidence": [{ "kind": "report | nas | file | commit", "ref": "…", "sha256": "…" }],\n  "issues": [{ "id": "…", "title": "…", "scope": "project | candidate | track", "severity": "blocking | fail | review | known" }],\n  "at": "2026-11-09T15:00:00+09:00" }\n\n<판정 기록 폴더>/<id>.json  — 근거(source.ref) 없는 기록은 받지 않음\n{ "schema": "tc-decision/1", "kind": "directive | approval | rejection | hold | closure | baseline | candidate_status",\n  "task_id": "…", "subject": "…", "at": "…", "source": { "ref": "감독 지시 원문 위치" } }' })));
+      h('pre', { class: 'card mono', text: '<인계 카드 폴더>/<팀>/<YYYYMMDD-HHMM>_<작업번호>.json   (덧붙이기만 · 고치거나 지우지 않음)\n{ "schema": "tc-handoff/1", "team": "TC-PROD | TC-QA | TC-WORK | TC-DASH", "task_id": "TC-VIS-030",\n  "title": "…", "state": "in_progress | handed_off | blocked | done",\n  "verdict": "PASS | FAIL | REVIEW | UNVERIFIED | null", "verdict_scope": "technical | visual | physics | selfcheck | run | null",\n  "candidate": "후보 이름 | null", "done": "완료한 작업", "next": "다음 작업", "to": "TC-PROD | TC-QA | TC-WORK | TC-DASH | director | user",\n  "user_action": "사용자 직접 조치 | null",\n  "evidence": [{ "kind": "report | nas | file | commit", "ref": "…", "sha256": "…(선택)", "at": "…(선택)" }],\n  "issues": [{ "id": "…", "title": "…", "scope": "project | candidate | track", "candidate": "…", "severity": "blocking | fail | review | known" }],\n  "author": { "method": "self | transcribed", "session": "세션 이름(선택)",\n              "transcribed_by": "전사한 팀", "transcribed_from": { "ref": "원문 위치", "at": "원문 시각" } },\n  "at": "2026-11-10T10:00:00+09:00" }\n  ※ "signed" 는 파일에 쓸 수 없음 — ③ 서명 Work 기록에서만 생김\n\n<판정 기록 폴더>/<id>.json  (④ 가 감독 지시문에서 전사 · source.ref 없으면 받지 않음)\n{ "schema": "tc-decision/1", "kind": "directive | approval | rejection | hold | closure | baseline | candidate_status",\n  "task_id": "…", "directive_id": "TC-DASH-005", "subject": "…", "at": "…", "source": { "ref": "감독 지시 번호 · 원문 보관 기록" } }\n\n감독 원문 목록 INDEX.json (대조 전용 · 화면에 내용 없음)\n{ "schema": "tc-director-index/1", "entries": [{ "directive_id": "TC-DASH-005", "file": "TC-DASH-005.md", "sha256": "…",\n  "source": "…", "written_at": "…", "checked_at": "…", "check_method": "user_confirmed | transcribed" }] }' })));
 }
 
 window.addEventListener('hashchange', () => { if (['tech', 'data'].includes(currentRoute()) && !overview) load(); else render(); });
