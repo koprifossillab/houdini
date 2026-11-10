@@ -76,3 +76,11 @@ test('V7 detailed responses are never cached and carry no secrets from the envir
     if (p !== '/api/live') assert.equal(r.headers.get('cache-control'), 'no-store', p);
   }
 });
+
+test('V8 /api/session local_detail is true only when the detail view opened because the viewer is on this computer', async t => {
+  const base = await open(t);
+  assert.equal((await (await fetch(`${base}/Houdini/api/session`, { headers: { 'X-Real-IP': '127.0.0.1' } })).json()).local_detail, true);
+  assert.equal((await (await fetch(`${base}/Houdini/api/session`, { headers: { 'X-Real-IP': '203.0.113.9' } })).json()).local_detail, undefined);
+  const authed = await serve(t, { handoffDir: await hand(t), publicOnly: false });
+  assert.equal((await (await fetch(`${authed}/Houdini/api/session`)).json()).local_detail, false, 'an authenticated/detailed service is not a local-only view');
+});
