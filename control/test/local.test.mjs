@@ -35,7 +35,7 @@ test('V1 through nginx from this computer (X-Real-IP loopback) → detailed view
 
 test('V2 through nginx from another address (LAN, VPN, internet) → public view only', async t => {
   const base = await open(t);
-  for (const ip of ['172.16.116.50', '172.16.116.98', '10.8.0.12', '203.0.113.9', '2001:db8::1', 'garbage']) {
+  for (const ip of ['10.20.30.50', '10.20.30.98', '10.8.0.12', '203.0.113.9', '2001:db8::1', 'garbage']) {
     const v = await view(base, { 'X-Real-IP': ip });
     assert.equal(v.detail, false, ip);
     assert.deepEqual(checkPublic(v.live), [], ip);
@@ -87,7 +87,7 @@ test('V8 /api/session local_detail is true only when the detail view opened beca
 
 test('V9 (0.3.2) without authentication every viewer gets the detailed views by default; HPC_PUBLIC_ONLY=1 restores the public projection', async t => {
   const base = await serve(t, { handoffDir: await hand(t) }); // configFromEnv default: publicOnly false
-  for (const h of [{}, { 'X-Real-IP': '203.0.113.9' }, { 'X-Real-IP': '172.16.113.40' }]) {
+  for (const h of [{}, { 'X-Real-IP': '203.0.113.9' }, { 'X-Real-IP': '10.20.30.41' }]) {
     const v = await view(base, h);
     assert.ok(v.detail, JSON.stringify(h)); assert.equal(v.legacy, 200); assert.equal(v.teams, 200);
   }
