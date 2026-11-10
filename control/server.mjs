@@ -59,6 +59,15 @@ const PUBLIC_ASSETS = {
   '/static/icon.svg': ['icon.svg', 'image/svg+xml'],
 };
 
+// on/off switches: a mistyped value must not silently fall back to "open" (② QA REVIEW 0.3.2-rc.1) — refuse to start
+export function flag(v, name) {
+  if (v === undefined || v === '') return false;
+  const s = String(v).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(s)) return true;
+  if (['0', 'false', 'no', 'off'].includes(s)) return false;
+  throw Error(`${name} 값을 알 수 없음 — 1/0, true/false, yes/no, on/off 중 하나로`);
+}
+
 export function configFromEnv(env = process.env) {
   return {
     host: env.HOST || '127.0.0.1',
@@ -84,7 +93,7 @@ export function configFromEnv(env = process.env) {
     // TC-DASH-009: detailed views for a viewer on this computer (default on; '0' = public view for everyone)
     localDetail: env.HPC_LOCAL_DETAIL !== '0',
     // 0.3.2: public-only projection only when asked for (owner decision 2026-11-11)
-    publicOnly: env.HPC_PUBLIC_ONLY === '1',
+    publicOnly: flag(env.HPC_PUBLIC_ONLY, 'HPC_PUBLIC_ONLY'),
     users: env.HPC_USERS || '',
     demo: env.HPC_DEMO === '1',
     demoState: ['live', 'stale', 'missing', 'error'].includes(env.HPC_DEMO_STATE) ? env.HPC_DEMO_STATE : 'live',

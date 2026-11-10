@@ -95,3 +95,10 @@ test('V9 (0.3.2) without authentication every viewer gets the detailed views by 
   assert.equal(configFromEnv({}).publicOnly, false);
   assert.equal(configFromEnv({ HPC_PUBLIC_ONLY: '1' }).publicOnly, true);
 });
+
+test('V10 HPC_PUBLIC_ONLY accepts 1/true/yes/on and 0/false/no/off; anything else refuses to start', async () => {
+  const { configFromEnv } = await import('../server.mjs');
+  for (const v of ['1', 'true', 'TRUE', 'yes', 'on', ' 1 ']) assert.equal(configFromEnv({ HPC_PUBLIC_ONLY: v }).publicOnly, true, v);
+  for (const v of ['0', 'false', 'no', 'off', '']) assert.equal(configFromEnv({ HPC_PUBLIC_ONLY: v }).publicOnly, false, v);
+  for (const v of ['ture', '2', 'public', 'y']) assert.throws(() => configFromEnv({ HPC_PUBLIC_ONLY: v }), /HPC_PUBLIC_ONLY/, v);
+});
