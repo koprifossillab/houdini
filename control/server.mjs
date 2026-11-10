@@ -17,6 +17,8 @@ import { attachWorkActivity } from './lib/workactivity.mjs';
 import { readCards, readDecisions, readSignedWork } from './lib/handoff.mjs';
 import { directorOriginals } from './lib/director.mjs';
 import { nasClues, nasImage, publicNas } from './lib/nas.mjs';
+import { buildLive, readCorrections } from './lib/live.mjs';
+import { readPcRuns } from './lib/pcrun.mjs';
 import { buildBoard } from './lib/board.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -116,7 +118,7 @@ export function computeState(snap) {
   return { physics, activity, blender_queue, observed_at: snap.generated_at, fresh };
 }
 
-const ROUTES = [[/^\/healthz$/, 'healthz'], [/^\/(?:index\.html)?$/, 'page'], [/^\/static\/[\w.-]+$/, 'static'], [/^\/(?:legacy\.html)$/, 'legacy'], [/^\/api\/(session|overview|reports|experiments|media|teams|board|nas)$/, 'api/$1'], [/^\/nasimg\/[a-f0-9]{16}$/, 'nasimg'], [/^\/api\/reports\/[a-f0-9]{16}$/, 'api/report'], [/^\/media\/[a-z0-9_-]{1,60}$/, 'media']];
+const ROUTES = [[/^\/healthz$/, 'healthz'], [/^\/(?:index\.html)?$/, 'page'], [/^\/static\/[\w.-]+$/, 'static'], [/^\/(?:legacy\.html)$/, 'legacy'], [/^\/api\/(session|overview|reports|experiments|media|teams|board|nas|live)$/, 'api/$1'], [/^\/nasimg\/[a-f0-9]{16}$/, 'nasimg'], [/^\/api\/reports\/[a-f0-9]{16}$/, 'api/report'], [/^\/media\/[a-z0-9_-]{1,60}$/, 'media']];
 export function routeId(raw) {
   let p = String(raw || '').split('?')[0];
   p = p.replace(/^\/Houdini(?=\/|$)/, '') || '/';
@@ -134,6 +136,36 @@ export function createApp(cfg = configFromEnv()) {
     if (ledgerCache.value && Date.now() - ledgerCache.at < 30000) return ledgerCache.value;
     ledgerCache = { at: Date.now(), value: await ledgerView(cfg.ledgerDir) };
     return ledgerCache.value;
+  }
+
+  // TC-DASH-008 "지금": scanned at most every 10 s (PC records every 60 s) whatever the number of viewers.
+  // Detail (task names, times, feed) only when viewers are authenticated; an open service gets coarse states.
+  const liveDetail = cfg.authMode !== 'off';
+  let pcCache = { at: 0, value: null };
+  let liveCache = { at: 0, body: null, etag: null, checked_at: null };
+  async function loadLive() {
+    const now = Date.now();
+    if (liveCache.body && now - liveCache.at < 10000) return liveCache;
+    if (!pcCache.value || now - pcCache.at >= 60000) pcCache = { at: now, value: await readPcRuns(cfg.demo ? null : cfg.nas?.launch, now) };
+    const [cards, signed, corr, tl] = await Promise.all([
+      readCards(cfg.demo ? null : cfg.handoffDir, { writtenAt: true }),
+      readSignedWork(cfg.demo ? null : cfg.workActivityDir, path.join(ROOT, 'data', 'work-public.pem')),
+      readCorrections(cfg.demo ? null : cfg.handoffDir),
+      cfg.demo ? Promise.resolve(null) : teamLiveView(cfg.teamLiveDir, now),
+    ]);
+    const live = buildLive({ cards: cards.items, signed: signed.items, corrections: corr.items, teamLive: tl, pc: pcCache.value, now, detail: liveDetail });
+    const checked_at = new Date(now).toISOString();
+    live.sources = {
+      handoff: { state: cards.state, ...(liveDetail ? { checked_at, count: cards.items.length, invalid: cards.invalid } : {}) },
+      signed_work: { state: signed.state, ...(liveDetail ? { checked_at, newest_at: signed.newest_at || null } : {}) },
+      corrections: { state: 'ok', ...(liveDetail ? { count: corr.items.length, invalid: corr.invalid } : {}) },
+      team_live: { state: tl?.state || 'missing', ...(liveDetail ? { observed_at: tl?.generated_at || null } : {}) },
+      pc_runs: { state: pcCache.value.state, ...(liveDetail ? { checked_at: pcCache.value.checked_at, results: pcCache.value.results.length, placed: pcCache.value.placed.length } : {}) },
+    };
+    const body = JSON.stringify(live);
+    // the ETag covers the content only; the check time travels in a header so a 304 still updates it
+    liveCache = { at: now, body, etag: `"${crypto.createHash('sha256').update(body).digest('hex').slice(0, 32)}"`, checked_at };
+    return liveCache;
   }
 
   async function gather() {
@@ -261,6 +293,15 @@ export function createApp(cfg = configFromEnv()) {
         },
         ...board,
       });
+    }
+    if (p === '/api/live') {
+      const l = await loadLive();
+      const hdr = { ETag: l.etag, 'X-Live-Checked-At': l.checked_at };
+      if (String(req.headers['if-none-match'] || '') === l.etag) {
+        res.writeHead(304, { 'Cache-Control': 'no-cache', ...SECURITY, ...hdr });
+        return res.end();
+      }
+      return send(req, res, 200, l.body, 'application/json; charset=utf-8', { ...hdr, 'Cache-Control': 'no-cache' });
     }
     if (p === '/api/nas') {
       return send(req, res, 200, publicNas(await nasClues(cfg.demo ? null : cfg.nas)));

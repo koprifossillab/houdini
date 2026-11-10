@@ -1,8 +1,8 @@
 {
   "name": "houdini-production-control",
   "private": true,
-  "version": "0.2.2",
-  "description": "Thermal Collapse production control \u2014 read-only web service",
+  "version": "0.3.0-rc.1",
+  "description": "Thermal Collapse production control — read-only web service",
   "type": "module",
   "scripts": {
     "start": "node server.mjs",

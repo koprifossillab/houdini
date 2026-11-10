@@ -82,8 +82,67 @@ function render() {
 }
 
 const SOURCE_LABEL = { handoff: '인계 카드', decisions: '판정 기록', signed_work: '서명 Work 기록', director: '감독 원문 대조', nas: 'NAS 단서', team_live: '팀 세션' };
+// ── TC-DASH-008 "지금" — /api/live every 20 s (paused while the tab is hidden; 304 when nothing changed) ──
+let live = null, liveEtag = null, liveFetchedAt = null, liveCheckedAt = null, liveFailed = false;
+const FMTS = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
+const hms = v => (v ? FMTS.format(new Date(v)) : '—');
+const ago = v => { const m = Math.max(0, Math.round((Date.now() - Date.parse(v)) / 60000)); return m < 1 ? '방금' : m < 120 ? `${m}분 전` : m < 2880 ? `${Math.round(m / 60)}시간 전` : `${Math.round(m / 1440)}일 전`; };
+const TONE = { blocked: 'bad', fail: 'bad', pc_last_fail: 'bad', wait_qa: 'wait', wait_prod: 'wait', wait_work: 'wait', wait_dash: 'wait', wait_director: 'wait', wait_user: 'wait', review: 'wait', working_claim: 'wait',
+  working: 'ok', pass: 'ok', done: 'ok', handed_answered: 'info', handed_off: 'info', session_active: 'ok', pc_last_ok: 'ok', pc_run_recorded: 'ok', session_idle: 'info' };
+const lv = (key, label) => h('span', { class: `b lv lv-${TONE[key] || 'unk'}`, text: label });
+const BUCKET = { none: '기록 없음', within_2h: '2시간 이내', within_24h: '24시간 이내', older: '24시간보다 오래됨' };
+const FLAG = { future: '미래 시각 기록', ahead_of_write: '기록 시각이 실제 작성보다 늦음 — 작성 시각으로 정렬', corrected: '기록 시각 정정 기록 있음' };
+async function loadLive() {
+  if (document.hidden || currentRoute() !== 'home') return;
+  try {
+    const r = await fetch('api/live', { cache: 'no-store', credentials: 'same-origin', headers: liveEtag ? { 'If-None-Match': liveEtag } : {} });
+    if (r.status === 200) { live = await r.json(); liveEtag = r.headers.get('ETag'); } else if (r.status !== 304) throw Error(String(r.status));
+    liveCheckedAt = r.headers.get('X-Live-Checked-At') || liveCheckedAt;
+    liveFetchedAt = new Date().toISOString();
+    liveFailed = false;
+  } catch { liveFailed = true; }
+  const n = $('live');
+  if (n) n.replaceWith(liveSection());
+}
+function liveTile(t, detail) {
+  const r = t.report;
+  return h('article', { class: 'tile' },
+    h('div', { class: 'row' }, h('b', { text: t.label }), h('span', { class: 'ev', text: detail ? (t.last ? `마지막 근거 ${ago(t.last.at)} · ${t.last.source}` : '근거 없음') : `마지막 근거 ${BUCKET[t.last_bucket] || '—'}` })),
+    h('div', { class: 'stack' }, h('span', { class: 'lbl', text: '보고된 상태 (인계 카드·서명 기록)' }),
+      h('span', {}, lv(r.key, r.label), ' ', grade(r.grade)),
+      r.last ? h('span', { class: 'ev', text: `마지막 보고 내용: ${r.last.label} — 지금 상태로 보지 않음` }) : null,
+      detail && r.task_id ? h('span', {}, h('span', { class: 'mono', text: r.task_id }), ` ${r.title}`) : null,
+      detail && r.at ? h('span', { class: 'ev', text: `${when(r.at)} 기록${r.to ? ` → ${r.to}` : ''}` }) : null,
+      detail && r.flags?.length ? h('span', { class: 'ev warnline', text: r.flags.map(f => FLAG[f] || f).join(' · ') }) : null,
+      detail && t.open_tasks?.length ? h('span', { class: 'ev', text: `그 밖에 진행·차단으로 보고된 작업: ${t.open_tasks.join(' · ')}` }) : null),
+    h('div', { class: 'stack split' }, h('span', { class: 'lbl', text: '실제 실행 확인' }),
+      h('span', {}, lv(t.session.key, t.session.label)), h('span', { class: 'ev', text: `${t.session.basis}${detail && t.session.observed_at ? ` · 수집 ${hms(t.session.observed_at)}` : ''}` }),
+      detail && t.pc ? h('span', {}, lv(t.pc.key, t.pc.label)) : null,
+      detail && t.pc?.last ? h('span', { class: 'ev', text: `${t.pc.last.job} · ${t.pc.last.finished ? `종료 ${when(t.pc.last.finished)}` : `시작 ${when(t.pc.last.started)}`}${t.pc.last.render_sec !== null ? ` · ${Math.round(t.pc.last.render_sec / 60)}분` : ''}` }) : null,
+      detail && t.pc ? h('span', { class: 'ev', text: `실행 파일 배치 후 결과 없음 ${t.pc.placed}건 — ${t.pc.placed_note}` }) : null));
+}
+function liveSection() {
+  const sec = h('section', { id: 'live', class: 'card live' },
+    h('div', { class: 'row' }, h('h2', { text: '지금 · 팀별 상태' }),
+      h('span', { class: 'ev', text: `화면 갱신 ${hms(liveFetchedAt)} (브라우저) · 자료 확인 ${hms(liveCheckedAt)} (서버) · 20초마다` })));
+  if (liveFailed) sec.append(h('div', { class: 'ev warnline', text: `실시간 자료를 받지 못함 — ${live ? '아래는 마지막으로 받은 값이며 지금 값이 아닙니다' : '표시할 자료가 없습니다'}` }));
+  if (!live) { sec.append(empty('불러오는 중')); return sec; }
+  sec.append(h('div', { class: 'g4' }, live.teams.map(t => liveTile(t, live.detail))));
+  if (!live.detail) sec.append(h('span', { class: 'ev', text: live.detail_note }));
+  else {
+    sec.append(h('div', { class: 'scroll' }, h('table', { class: 'feed' }, h('thead', {}, h('tr', {}, ['시각', '팀', '출처', '내용'].map(x => h('th', { text: x })))),
+      h('tbody', {}, live.feed.map(f => h('tr', {}, h('td', { class: 'mono', text: when(f.at) }), h('td', { text: f.team }), h('td', { text: f.source }),
+        h('td', {}, f.task_id ? h('span', { class: 'mono', text: `${f.task_id} ` }) : null, f.text, f.flags?.length ? h('span', { class: 'ev warnline', text: ` · ${f.flags.map(x => FLAG[x] || x).join(' · ')}` }) : null)))))));
+    const k = live.checks;
+    sec.append(h('span', { class: 'ev', text: `기록 시각 검사 — 미래 시각 ${k.future} · 실제 작성보다 늦은 기록 ${k.ahead_of_write} · 정정 기록 적용 ${k.corrected}${live.corrections?.length ? ` (${live.corrections.map(c => `${c.team} ${c.target_file}: ${when(c.recorded_value)} → ${when(c.corrected_value)}`).join(' · ')})` : ''}` }));
+  }
+  sec.append(h('span', { class: 'ev', text: '보고된 상태는 팀이 적은 것이고, 실제 실행 확인은 세션 수집기와 PC 실행 결과 기록으로 본 것입니다. 실행 파일(BAT) 배치는 실행 증거가 아닙니다. 2시간 안에 새 기록이 없으면 미확인입니다. ③ WORK 는 별도 Windows 환경이라 실시간 활동 연결이 없습니다.' }));
+  return sec;
+}
+
 function home(v) {
   const b = board, c = b.current;
+  v.append(liveSection());
   v.append(
     h('section', { class: 'row' },
       h('div', { class: 'stack' }, h('span', { class: 'lbl', text: '현재 프로젝트 · 기준본' }), h('h1', { text: 'Thermal Collapse · Houdini 제작' }),
@@ -286,4 +345,8 @@ window.addEventListener('hashchange', () => { if (['tech', 'data'].includes(curr
 fetch('api/session', { cache: 'no-store' }).then(r => r.json()).then(s => { $('version').textContent = `판 ${s.version} · 스테이징`; }).catch(() => {});
 load();
 setInterval(load, 30000);
+loadLive();
+setInterval(loadLive, 20000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) loadLive(); });
+window.addEventListener('hashchange', () => { if (currentRoute() === 'home') loadLive(); });
 })();

@@ -167,7 +167,10 @@ async function readDoc(p) {
   try { return JSON.parse((await readBounded(p, CARD_LIMIT)).toString('utf8')); } catch { return undefined; }
 }
 
-export async function readCards(dir) {
+// opts.writtenAt (TC-DASH-008 /api/live only): also record the file's modification time, so a card whose
+// written `at` lies ahead of when the file was actually written cannot jump ahead in the order.
+// /api/board does not pass it, so its output is unchanged.
+export async function readCards(dir, opts = {}) {
   if (!dir) return { state: 'missing', message: '인계 카드 폴더가 설정되지 않음', items: [], invalid: 0 };
   let found = false;
   const items = [];
@@ -177,6 +180,7 @@ export async function readCards(dir) {
     if (!missing) found = true;
     for (const f of files) {
       const c = parseCard(await readDoc(path.join(dir, team, f)), team, f);
+      if (c && opts.writtenAt) { try { c.written_at = new Date((await fs.lstat(path.join(dir, team, f))).mtimeMs).toISOString(); } catch { c.written_at = null; } }
       if (c) items.push(c); else invalid += 1;
     }
   }
