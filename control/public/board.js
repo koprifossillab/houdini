@@ -94,8 +94,10 @@ function home(v) {
   );
   // TC-DASH-007: home counts production actions that are needed now; control-room work and past user records
   // are listed apart (issues screen)
-  const acts = b.actions.filter(a => a.kind !== 'control');
+  // ② QA R1: only production work is counted here; control-room and other work are listed apart
+  const acts = b.actions.filter(a => a.kind === 'production');
   const ctlActs = b.actions.filter(a => a.kind === 'control');
+  const otherActs = b.actions.filter(a => a.kind === 'other');
   const count = who => acts.filter(a => a.who === who).length;
   v.append(h('section', { class: 'g4' },
     h('article', { class: 'card' }, h('span', { class: 'lbl', text: `1 · 현재 진행 중인 제작 작업${c.open_count > 1 ? ` (열린 작업 ${c.open_count})` : ''}` }),
@@ -111,7 +113,7 @@ function home(v) {
       b.last_done ? [h('span', { class: 'big mono', text: b.last_done.task_id || '' }), h('span', { text: b.last_done.title }), b.last_done.verdict ? h('span', {}, verdict(b.last_done.verdict, b.last_done.verdict_scope)) : null, evl(b.last_done), h('span', { class: 'ev', text: '과거 완료 기록 — 현재 작업 아님' })] : empty('완료된 제작 작업 기록 없음 — 미확인')),
     h('article', { class: 'card focus' }, h('span', { class: 'lbl', text: '4 · 다음 행동' }),
       ...[['director', '감독 결정'], ['TC-WORK', '③ WORK 검토'], ['TC-QA', '② QA 검증'], ['TC-PROD', '① PROD 작업'], ['user', '사용자 조치']].map(([k, l]) => h('div', { class: 'row' }, h('span', { text: l }), h('span', { class: 'n', text: String(count(k)) }))),
-      h('span', { class: 'ev', text: `제작 작업에서 지금 필요한 것만 셉니다 (받는 쪽이 아직 답하지 않음 · 사용자 조치는 24시간 이내). 관제실 작업 ${ctlActs.length}건 · 지난 사용자 기록 ${b.actions_past.length}건은 따로` }), h('a', { href: '#issues', text: '승인 대기 목록 →' })),
+      h('span', { class: 'ev', text: `제작 작업에서 지금 필요한 것만 셉니다 (받는 쪽이 아직 답하지 않음 · 사용자 조치는 24시간 이내). 관제실 작업 ${ctlActs.length}건 · 기타 ${otherActs.length}건 · 지난 사용자 기록 ${b.actions_past.length}건은 따로` }), h('a', { href: '#issues', text: '승인 대기 목록 →' })),
   ));
   if (b.control?.open?.length) v.append(h('section', { class: 'card dash' }, h('span', { class: 'lbl', text: '관제실 개발 작업 (제작 작업과 별도)' }),
     h('span', { class: 'ev', text: b.control.open.map(x => `${x.task_id} · ${x.team} · ${{ in_progress: '진행 기록', handed_off: '넘김', blocked: '차단' }[x.state] || x.state}${x.to_label ? ` → ${x.to_label}` : ''} · ${when(x.at)}`).join('   |   ') })));
@@ -160,12 +162,14 @@ function actionList(list, none) { return list.length ? list.map(a => h('div', { 
 function histTable(rows) { return h('div', { class: 'scroll' }, h('table', { class: 'hist' }, h('thead', {}, h('tr', {}, ['지시', '내용', '지시 근거', '제작', '자체 검증', 'QA 독립 검증', '감독 판정', '결과'].map(t => h('th', { text: t })))), h('tbody', {}, rows.map(stepsRow)))); }
 function issues(v) {
   const b = board;
-  const prodActs = b.actions.filter(a => a.kind !== 'control');
+  const prodActs = b.actions.filter(a => a.kind === 'production');
   const ctlActs = b.actions.filter(a => a.kind === 'control');
+  const otherActs = b.actions.filter(a => a.kind === 'other');
   v.append(h('h1', { text: '문제 · 승인 대기 · 지시 이력' }),
     h('section', { class: 'g2' },
       h('article', { class: 'card' }, h('h2', { text: `지금 필요한 승인 · 결정 · 검토 · 조치 — 제작 ${prodActs.length}` }), actionList(prodActs, '대기 없음'),
         h('h3', { text: `관제실 개발 작업 ${ctlActs.length}` }), actionList(ctlActs, '대기 없음'),
+        otherActs.length ? [h('h3', { text: `기타 작업 ${otherActs.length} (지시 번호 형식 밖)` }), actionList(otherActs, '대기 없음')] : null,
         h('h3', { text: `지난 사용자 조치 기록 ${b.actions_past.length} — 처리 여부 미확인, 홈에서 세지 않음` }),
         b.actions_past.length ? b.actions_past.map(a => h('div', { class: 'item' }, h('span', { class: 'who', text: a.who_label }), h('div', { class: 'stack' }, h('span', { text: a.what }), h('span', { class: 'ev', text: `${a.task_id} · ${when(a.since)} · ${a.past_reason}` }), evl(a)))) : empty('없음'),
         h('div', { class: 'ev', text: '승인·반려 버튼은 없습니다. 결정은 판정 기록 파일이 들어오면 반영됩니다.' })),

@@ -191,6 +191,17 @@ export function buildBoard({ cards = [], decisions: rawDecisions = [], originals
       if (why) actions_past.push({ ...a, past_reason: why }); else actions.push(a);
     }
   }
+  // ② QA R4: a user action that a team's earlier card asked for and its newer card no longer carries is not
+  // dropped — it is listed as a past record (handling unknown)
+  for (const c of cards) {
+    const head = heads.get(`${c.team}\0${c.task_id}`);
+    const text = c.user_action || (c.to === 'user' ? (c.next || c.title) : null);
+    if (!text || head === c) continue;
+    const key = `${c.task_id}\0${text}`;
+    if (seenUser.has(key)) continue;
+    seenUser.add(key);
+    actions_past.push({ who: 'user', who_label: WHO.user, what: text, task_id: c.task_id, kind: taskKind(c.task_id), since: c.at, from: c.team, ...cardEvidence(c), past_reason: '같은 팀의 뒤 카드에 없는 요청 — 처리 여부 미확인' });
+  }
   actions.sort((a, b) => b.since.localeCompare(a.since));
   actions_past.sort((a, b) => b.since.localeCompare(a.since));
 

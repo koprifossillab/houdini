@@ -70,3 +70,20 @@ test('user actions: needed now vs past records; duplicates once; another team\'s
   assert.ok(!b.actions.some(a => a.task_id === 'TC-VIS-020'), 'no team/director action for a finished task');
   assert.equal(USER_ACTION_FRESH_MS, 24 * 3600 * 1000);
 });
+
+// ② QA R4 / R1
+test('R4: a user action a team dropped from its newer card is kept as a past record; R1: other work is not counted as production', async () => {
+  const now = T('2026-11-10T10:00:00+09:00');
+  const first = card('TC-PROD', 'TC-VIS-040', '2026-11-10T09:00:00+09:00', { user_action: 'BAT 실행' });
+  const second = card('TC-PROD', 'TC-VIS-040', '2026-11-10T09:30:00+09:00', { state: 'in_progress' });
+  const b = buildBoard({ cards: [first, second], now });
+  assert.ok(!b.actions.some(a => a.who === 'user'), 'not needed now');
+  const p = b.actions_past.find(a => a.what === 'BAT 실행');
+  assert.ok(p, 'kept as a past record, not dropped');
+  assert.match(p.past_reason, /뒤 카드에 없는/);
+  const other = card('TC-PROD', 'TC-VIS-041', '2026-11-10T09:40:00+09:00', { to: 'director' });
+  const b2 = buildBoard({ cards: [other], now });
+  assert.equal(b2.actions[0].kind, 'production');
+  const js = await (await import('node:fs/promises')).readFile(new URL('../public/board.js', import.meta.url), 'utf8');
+  assert.match(js, /const acts = b\.actions\.filter\(a => a\.kind === 'production'\)/, 'home counts production only');
+});
