@@ -29,7 +29,7 @@ test('L1 a card dated ahead of its write time does not move ahead of a later-wri
 });
 
 test('L2 correction applies only to its own team card with the recorded value, never to a future value', () => {
-  const c = card({ file: '20261110-1440_TC-DASH-007', team: 'TC-DASH', task_id: 'TC-DASH-007', at: '2026-11-10T05:40:00.000Z' });
+  const c = card({ file: '20261110-1440_TC-DASH-007', team: 'TC-DASH', task_id: 'TC-DASH-007', at: '2026-11-10T05:40:00.000Z', written_at: '2026-11-10T05:37:48.322Z' });
   const ok = parseCorrection({ schema: 'tc-card-correction/1', team: 'TC-DASH', target_file: c.file, field: 'at', recorded_value: '2026-11-10T14:40:00+09:00', corrected_value: '2026-11-10T14:37:48+09:00', reason: 'r', at: '2026-11-10T14:52:00+09:00' }, 'TC-DASH', 'k.json');
   assert.ok(ok);
   assert.equal(orderCards([c], [ok], NOW)[0].order_at, '2026-11-10T05:37:48.000Z');
@@ -37,11 +37,11 @@ test('L2 correction applies only to its own team card with the recorded value, n
   assert.equal(parseCorrection({ ...ok, schema: 'tc-card-correction/1', team: 'TC-PROD', target_file: c.file, field: 'at', recorded_value: ok.recorded_value, corrected_value: ok.corrected_value, at: ok.at }, 'TC-DASH', 'k.json'), null, 'team must match its folder');
   assert.equal(parseCorrection({ schema: 'tc-card-correction/1', team: 'TC-DASH', target_file: c.file, field: 'state', recorded_value: ok.recorded_value, corrected_value: ok.corrected_value, at: ok.at }, 'TC-DASH', 'k.json'), null, 'only the time can be corrected');
   const otherTeam = { ...ok, team: 'TC-QA' };
-  assert.equal(orderCards([c], [otherTeam], NOW)[0].order_at, c.at);
+  assert.equal(orderCards([c], [otherTeam], NOW)[0].order_at, c.written_at, 'not applied → write time only');
   const staleValue = { ...ok, recorded_value: '2026-11-10T05:41:00.000Z' };
-  assert.equal(orderCards([c], [staleValue], NOW)[0].order_at, c.at);
+  assert.equal(orderCards([c], [staleValue], NOW)[0].order_at, c.written_at, 'not applied → write time only');
   const future = { ...ok, corrected_value: new Date(NOW + 3600e3).toISOString() };
-  assert.equal(orderCards([c], [future], NOW)[0].order_at, c.at);
+  assert.equal(orderCards([c], [future], NOW)[0].order_at, c.written_at, 'not applied → write time only');
 });
 
 test('L3 report states: QA wait vs answered, user wait, blocked, FAIL, claim, stale → 미확인', () => {
@@ -174,4 +174,44 @@ test('L10 readCards keeps its board output unless the write time is asked for; c
   const r = await readCorrections(hand);
   assert.equal(r.items.length, 1);
   assert.equal(r.invalid, 1);
+});
+
+test('L11 (QA REVIEW a) a record dated in the future is listed but never becomes the current state', () => {
+  const now = Date.now();
+  const past = card({ team: 'TC-WORK', task_id: 'TC-WORK-001', grade: 'signed', file: 'old', title: '지난 기록', at: new Date(now - 30 * 60000).toISOString(), written_at: null });
+  const fut = card({ team: 'TC-WORK', task_id: 'TC-WORK-002', grade: 'signed', file: 'fut', title: '미래 기록', at: new Date(now + 3600e3).toISOString(), written_at: null });
+  const l = buildLive({ cards: [], signed: [past, fut], now, detail: true });
+  const w = l.teams.find(t => t.team === 'TC-WORK');
+  assert.equal(w.report.title, '지난 기록');
+  assert.ok(l.feed.some(f => f.text.includes('미래 기록') && f.flags.includes('not_current')));
+  const only = buildLive({ cards: [], signed: [fut], now, detail: true }).teams.find(t => t.team === 'TC-WORK');
+  assert.equal(only.report.key, 'none');
+});
+
+test('L12 (QA REVIEW b) a correction cannot move a card later than its write time; several corrections → newest record wins', () => {
+  const now = Date.parse('2026-11-10T06:00:00Z');
+  const a = card({ file: 'a', team: 'TC-DASH', task_id: 'TC-DASH-007', at: '2026-11-10T05:10:00.000Z', written_at: '2026-11-10T05:10:00.000Z', title: 'A' });
+  const b = card({ file: 'b', team: 'TC-DASH', task_id: 'TC-DASH-007', at: '2026-11-10T05:20:00.000Z', written_at: '2026-11-10T05:20:00.000Z', title: 'B' });
+  const mk = (val, at, file = 'k.json') => ({ file, team: 'TC-DASH', target_file: 'a.json', recorded_value: a.at, corrected_value: val, at, reason: '' });
+  const later = mk('2026-11-10T05:30:00.000Z', '2026-11-10T05:31:00.000Z');
+  const o = orderCards([a, b], [later], now);
+  assert.deepEqual(o.map(c => c.title), ['A', 'B'], 'moving A after B (beyond its write time) is refused');
+  assert.ok(!o[0].flags.includes('corrected'));
+  const c1 = mk('2026-11-10T05:05:00.000Z', '2026-11-10T05:40:00.000Z', 'x1.json');
+  const c2 = mk('2026-11-10T05:08:00.000Z', '2026-11-10T05:45:00.000Z', 'x0.json');
+  for (const list of [[c1, c2], [c2, c1]]) {
+    const r = orderCards([a], list, now)[0];
+    assert.equal(r.order_at, '2026-11-10T05:08:00.000Z');
+    assert.ok(r.flags.includes('multiple_corrections'));
+  }
+  assert.equal(orderCards([{ ...a, written_at: null }], [c1], now)[0].order_at, a.at, 'no write time → no correction');
+});
+
+test('L13 (QA REVIEW c) placeholder user_action words are read as no action', async () => {
+  const { parseCard } = await import('../lib/handoff.mjs');
+  const base = { schema: 'tc-handoff/1', team: 'TC-PROD', task_id: 'TC-VIS-030', title: 't', state: 'handed_off', to: 'TC-QA', evidence: [{ kind: 'commit', ref: 'c' }], at: '2026-11-10T05:00:00Z' };
+  for (const v of ['없음', '없음.', ' - ', '—', 'N/A', 'none', '해당 없음', 'null']) assert.equal(parseCard({ ...base, user_action: v }, 'TC-PROD', 'a.json').user_action, null, v);
+  assert.equal(parseCard({ ...base, user_action: 'PC 에서 BAT 실행' }, 'TC-PROD', 'a.json').user_action, 'PC 에서 BAT 실행');
+  const c = parseCard({ ...base, user_action: '없음' }, 'TC-PROD', 'a.json');
+  assert.equal(buildLive({ cards: [{ ...c, file: 'a.json', written_at: null }], now: Date.parse('2026-11-10T05:10:00Z'), detail: true }).teams[0].report.key, 'wait_qa');
 });

@@ -36,6 +36,10 @@ const MAX_FILES = 400;
 export const DIRECTOR_FOLDER = 'TC3D_DIRECTOR_DECISIONS';
 
 const pick = (v, list) => (list.includes(v) ? v : null);
+// user_action is null when there is nothing for the user to do. Placeholder words written instead of null
+// ("없음", "-", "none" …) are read as null, so they do not show as a user action (② QA TC-DASH-008 REVIEW c).
+export const NO_ACTION = /^\s*(?:없음|없습니다|해당\s*없음|불필요|-+|—+|n\/?a|none|null|nil)\s*[.。]?\s*$/i;
+const userAction = v => { const s = clean(v, 300); return s && !NO_ACTION.test(s) ? s : null; };
 const at = v => iso(v);
 const precision = v => (v === 'date' ? 'date' : 'time');
 
@@ -119,7 +123,7 @@ export function parseCard(doc, team, file) {
     title: clean(doc.title, 200), state,
     verdict: pick(doc.verdict, VERDICTS), verdict_scope: pick(doc.verdict_scope, VERDICT_SCOPES),
     candidate: clean(doc.candidate, 60) || null,
-    done: clean(doc.done, 300), next: clean(doc.next, 300), to: pick(doc.to, TARGETS), user_action: clean(doc.user_action, 300) || null,
+    done: clean(doc.done, 300), next: clean(doc.next, 300), to: pick(doc.to, TARGETS), user_action: userAction(doc.user_action),
     evidence: ev, issues: issues(doc.issues),
     at: when, at_precision: precision(doc.at_precision),
     author: au,

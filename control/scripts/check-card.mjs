@@ -4,7 +4,7 @@
 // Exit code 0 = every card would be shown; 1 = at least one card would be refused.
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { parseCard, TEAMS } from '../lib/handoff.mjs';
+import { parseCard, TEAMS, NO_ACTION } from '../lib/handoff.mjs';
 
 const NAME = /^\d{8}-\d{4}_TC-[0-9A-Z]{2,5}-\d{3}[A-Za-z0-9]{0,3}\.json$/;
 let bad = 0;
@@ -34,6 +34,8 @@ for (const file of process.argv.slice(2)) {
   if (c.grade === 'claim') notes.push('evidence 가 없어 "근거 없는 카드"로 표시되고 진행 중으로 치지 않음');
   if (c.author.signed_claim_ignored) notes.push('파일로는 signed 를 쓸 수 없음 — 직접 작성으로 읽음 (서명은 ③ Work 기록에서만)');
   if (c.state === 'in_progress') notes.push('진행 중 카드는 2시간 안에 새 근거로 다시 쓰지 않으면 화면에서 미확인으로 내려감');
+  if (typeof doc?.user_action === 'string' && NO_ACTION.test(doc.user_action)) notes.push(`user_action '${doc.user_action}' 은 없음으로 읽음 — 사용자 할 일이 없으면 null 로 쓰기`);
+  if (c.user_action && c.to && c.to !== 'user') notes.push(`user_action 이 있어 "사용자 대기"로 표시됨 — 받는 쪽(${c.to})의 할 일이면 user_action 은 null`);
   if (['handed_off', 'blocked'].includes(c.state) && !c.to) notes.push('넘김·차단 카드에 to(받는 쪽)가 없음');
   const label = { confirmed: '직접 작성', claim: '근거 없는 카드', transcribed: '전사' }[c.grade] || c.grade;
   console.log(`✓ ${name}: ${c.team} ${c.task_id} ${c.state}${c.verdict ? ` · ${c.verdict}` : ''} — ${label}`);

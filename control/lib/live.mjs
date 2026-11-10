@@ -63,13 +63,22 @@ export function orderCards(cards, corrections, now) {
   return cards.map(c => {
     // a correction applies only to the card it names, in the same team folder, and only while the card
     // still carries the value the correction says was recorded
-    const corr = corrections.find(x => x.team === c.team && x.target_file === c.file && x.recorded_value === c.at && Date.parse(x.corrected_value) <= now + SKEW_MS);
+    // ② QA REVIEW b: a correction may only move a card back toward when it was actually written — never later
+    // than the file's write time (no write time known → no correction). Several corrections: the newest record wins.
+    const corrs = corrections.filter(x => x.team === c.team && x.target_file === c.file && x.recorded_value === c.at && c.written_at
+      && Date.parse(x.corrected_value) <= Date.parse(c.written_at) + SKEW_MS && Date.parse(x.corrected_value) <= now + SKEW_MS)
+      .sort((a, b) => a.at.localeCompare(b.at) || a.file.localeCompare(b.file));
+    const corr = corrs.at(-1) || null;
     const w = c.written_at && Date.parse(c.written_at) < Date.parse(c.at) ? c.written_at : null;
     const order_at = corr ? corr.corrected_value : w || c.at;
     const flags = [];
     if (Date.parse(c.at) > now + SKEW_MS) flags.push('future');
     if (c.written_at && Date.parse(c.at) - Date.parse(c.written_at) > SKEW_MS) flags.push('ahead_of_write');
     if (corr) flags.push('corrected');
+    if (corrs.length > 1) flags.push('multiple_corrections');
+    // ② QA REVIEW a: a record still dated in the future after ordering (e.g. a signed record, which has no write
+    // time) is listed but never taken as a team's current state
+    if (Date.parse(order_at) > now + SKEW_MS) flags.push('not_current');
     return { ...c, order_at, flags, correction: corr || null };
   }).sort((a, b) => a.order_at.localeCompare(b.order_at) || a.file.localeCompare(b.file));
 }
@@ -135,7 +144,7 @@ export function buildLive({ cards = [], signed = [], corrections = [], teamLive 
   const ordered = orderCards([...cards, ...signed.map(s => ({ ...s, written_at: null }))], corrections, now);
   const pcl = pcLine(pc, now);
   const teams = LIVE_TEAMS.map(([id, label]) => {
-    const mine = ordered.filter(c => c.team === id);
+    const mine = ordered.filter(c => c.team === id && !c.flags.includes('not_current'));
     const head = mine.at(-1) || null;
     const status = reportStatus(head, ordered, now);
     const session = sessionLine(id, teamLive);

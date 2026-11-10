@@ -91,7 +91,7 @@ const TONE = { blocked: 'bad', fail: 'bad', pc_last_fail: 'bad', wait_qa: 'wait'
   working: 'ok', pass: 'ok', done: 'ok', handed_answered: 'info', handed_off: 'info', session_active: 'ok', pc_last_ok: 'ok', pc_run_recorded: 'ok', session_idle: 'info' };
 const lv = (key, label) => h('span', { class: `b lv lv-${TONE[key] || 'unk'}`, text: label });
 const BUCKET = { none: '기록 없음', within_2h: '2시간 이내', within_24h: '24시간 이내', older: '24시간보다 오래됨' };
-const FLAG = { future: '미래 시각 기록', ahead_of_write: '기록 시각이 실제 작성보다 늦음 — 작성 시각으로 정렬', corrected: '기록 시각 정정 기록 있음' };
+const FLAG = { future: '미래 시각 기록', ahead_of_write: '기록 시각이 실제 작성보다 늦음 — 작성 시각으로 정렬', corrected: '기록 시각 정정 기록 있음', multiple_corrections: '정정 기록 여러 건 — 가장 최근 정정 적용', not_current: '미래 시각이라 현재 상태 판정에서 제외' };
 async function loadLive() {
   if (document.hidden || currentRoute() !== 'home') return;
   try {
