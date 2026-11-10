@@ -156,9 +156,11 @@ export function createApp(cfg = configFromEnv()) {
   const liveDetail = true; // computed in full inside; the public projection decides what leaves
   let pcCache = { at: 0, value: null };
   let liveCache = { at: 0, body: null, etag: null, checked_at: null };
-  async function loadLive() {
-    const now = Date.now();
-    if (liveCache.body && now - liveCache.at < 10000) return liveCache;
+  const clock = cfg.now || Date.now;
+  const etagOf = body => `"${crypto.createHash('sha256').update(body).digest('hex').slice(0, 32)}"`;
+  // full "지금" state; asOf = evaluate as of that fixed moment (public snapshots)
+  async function computeLive(asOf = null) {
+    const now = clock();
     if (!pcCache.value || now - pcCache.at >= 60000) pcCache = { at: now, value: await readPcRuns(cfg.demo ? null : cfg.nas?.launch, now) };
     const [cards, signed, corr, tl] = await Promise.all([
       readCards(cfg.demo ? null : cfg.handoffDir, { writtenAt: true }),
@@ -166,20 +168,40 @@ export function createApp(cfg = configFromEnv()) {
       readCorrections(cfg.demo ? null : cfg.handoffDir),
       cfg.demo ? Promise.resolve(null) : teamLiveView(cfg.teamLiveDir, now),
     ]);
-    const live = buildLive({ cards: cards.items, signed: signed.items, corrections: corr.items, teamLive: tl, pc: pcCache.value, now, detail: liveDetail });
+    const live = buildLive({ cards: cards.items, signed: signed.items, corrections: corr.items, teamLive: tl, pc: pcCache.value, now, detail: liveDetail, asOf });
     const checked_at = new Date(now).toISOString();
     live.sources = {
-      handoff: { state: cards.state, ...(liveDetail ? { checked_at, count: cards.items.length, invalid: cards.invalid } : {}) },
-      signed_work: { state: signed.state, ...(liveDetail ? { checked_at, newest_at: signed.newest_at || null } : {}) },
-      corrections: { state: 'ok', ...(liveDetail ? { count: corr.items.length, invalid: corr.invalid } : {}) },
-      team_live: { state: tl?.state || 'missing', ...(liveDetail ? { observed_at: tl?.generated_at || null } : {}) },
-      pc_runs: { state: pcCache.value.state, ...(liveDetail ? { checked_at: pcCache.value.checked_at, results: pcCache.value.results.length, placed: pcCache.value.placed.length } : {}) },
+      handoff: { state: cards.state, checked_at, count: cards.items.length, invalid: cards.invalid },
+      signed_work: { state: signed.state, checked_at, newest_at: signed.newest_at || null },
+      corrections: { state: 'ok', count: corr.items.length, invalid: corr.invalid },
+      team_live: { state: tl?.state || 'missing', observed_at: tl?.generated_at || null },
+      pc_runs: { state: pcCache.value.state, checked_at: pcCache.value.checked_at, results: pcCache.value.results.length, placed: pcCache.value.placed.length },
     };
-    const body = JSON.stringify(publicOnly ? publicLive(live, live.sources) : live);
+    return { live, checked_at };
+  }
+  // detailed view (authenticated services): re-scanned at most every 10 s
+  async function loadLive() {
+    if (liveCache.body && clock() - liveCache.at < 10000) return liveCache;
+    const { live, checked_at } = await computeLive();
+    const body = JSON.stringify(live);
     // the ETag covers the content only; the check time travels in a header so a 304 still updates it
-    // (not in public mode: freshness is published as a state word, no times)
-    liveCache = { at: now, body, etag: `"${crypto.createHash('sha256').update(body).digest('hex').slice(0, 32)}"`, checked_at, live };
+    liveCache = { at: clock(), body, etag: etagOf(body), checked_at, live };
     return liveCache;
+  }
+  // 감독 결정 2026-11-10: the public state changes only at fixed 15-minute marks (:00 :15 :30 :45). Each
+  // snapshot is evaluated AS OF its mark (records after the mark wait for the next one), so neither the body,
+  // the ETag nor any header can show when an individual change actually happened. No Last-Modified is sent.
+  const SLOT_MS = 15 * 60 * 1000;
+  let pubCache = { slot: null };
+  async function publicState() {
+    const slot = Math.floor(clock() / SLOT_MS);
+    if (pubCache.slot === slot) return pubCache;
+    const asOf = slot * SLOT_MS;
+    const [{ live }, { board }] = await Promise.all([computeLive(asOf), boardInternal(asOf)]);
+    const liveBody = JSON.stringify(publicLive(live, live.sources));
+    const boardBody = JSON.stringify(publicBoard(board, live, live.sources));
+    pubCache = { slot, liveBody, liveEtag: etagOf(liveBody), boardBody, boardEtag: etagOf(boardBody) };
+    return pubCache;
   }
 
   async function gather() {
@@ -233,15 +255,19 @@ export function createApp(cfg = configFromEnv()) {
   };
   const protoOf = req => (req.socket.encrypted ? 'https' : trusted(req) && /^https$/i.test(String(req.headers['x-forwarded-proto'] || '')) ? 'https' : 'http');
 
-  async function boardInternal() {
+  // asOf: only records dated at or before that moment (public snapshots)
+  async function boardInternal(asOf = null) {
     const [cards, decisions, nas, tl, signed, originals] = await Promise.all([
-      readCards(cfg.demo ? null : cfg.handoffDir), readDecisions(cfg.demo ? null : cfg.decisionsDir),
+      readCards(cfg.demo ? null : cfg.handoffDir, { writtenAt: asOf !== null }), readDecisions(cfg.demo ? null : cfg.decisionsDir),
       nasClues(cfg.demo ? null : cfg.nas), cfg.demo ? Promise.resolve(null) : teamLiveView(cfg.teamLiveDir),
       readSignedWork(cfg.demo ? null : cfg.workActivityDir, path.join(ROOT, 'data', 'work-public.pem')),
       directorOriginals(cfg.demo ? null : cfg.directorDir),
     ]);
-    const allCards = [...cards.items, ...signed.items].sort((a, b) => a.at.localeCompare(b.at));
-    return { cards, decisions, nas, tl, signed, originals, allCards, board: buildBoard({ cards: allCards, decisions: decisions.items, originals, nas, teamLive: tl, now: Date.now() }) };
+    const seen = c => Date.parse(c.written_at || c.at); // existed at the mark (file write time when known)
+    const keep = c => asOf === null || seen(c) <= asOf;
+    const allCards = [...cards.items, ...signed.items].filter(keep).map(({ written_at, ...c }) => c).sort((a, b) => a.at.localeCompare(b.at));
+    const decs = decisions.items.filter(keep);
+    return { cards, decisions, nas, tl, signed, originals, allCards, board: buildBoard({ cards: allCards, decisions: decs, originals, nas, teamLive: tl, now: asOf ?? clock() }) };
   }
 
   // public-only service: fixed files and the two public APIs; everything else is the same plain 404
@@ -252,14 +278,11 @@ export function createApp(cfg = configFromEnv()) {
       return send(req, res, 200, await fs.readFile(path.join(ROOT, 'public', file)), type);
     }
     if (p === '/api/session') return send(req, res, 200, publicSession(VERSION));
-    if (p === '/api/live') {
-      const l = await loadLive();
-      if (String(req.headers['if-none-match'] || '') === l.etag) { res.writeHead(304, { 'Cache-Control': 'no-cache', ...SECURITY, ETag: l.etag }); return res.end(); }
-      return send(req, res, 200, l.body, 'application/json; charset=utf-8', { ETag: l.etag, 'Cache-Control': 'no-cache' });
-    }
-    if (p === '/api/board') {
-      const [{ board }, l] = await Promise.all([boardInternal(), loadLive()]);
-      return send(req, res, 200, publicBoard(board, l.live, l.live.sources));
+    if (p === '/api/live' || p === '/api/board') {
+      const snap = await publicState();
+      const [body, etag] = p === '/api/live' ? [snap.liveBody, snap.liveEtag] : [snap.boardBody, snap.boardEtag];
+      if (String(req.headers['if-none-match'] || '') === etag) { res.writeHead(304, { 'Cache-Control': 'no-cache', ...SECURITY, ETag: etag }); return res.end(); }
+      return send(req, res, 200, body, 'application/json; charset=utf-8', { ETag: etag, 'Cache-Control': 'no-cache' });
     }
     return send(req, res, 404, { error: '없음' });
   }
@@ -343,7 +366,7 @@ export function createApp(cfg = configFromEnv()) {
     }
     if (p === '/api/live') {
       const l = await loadLive();
-      const hdr = publicOnly ? { ETag: l.etag } : { ETag: l.etag, 'X-Live-Checked-At': l.checked_at };
+      const hdr = { ETag: l.etag, 'X-Live-Checked-At': l.checked_at }; // authenticated services only — public requests never reach here
       if (String(req.headers['if-none-match'] || '') === l.etag) {
         res.writeHead(304, { 'Cache-Control': 'no-cache', ...SECURITY, ...hdr });
         return res.end();

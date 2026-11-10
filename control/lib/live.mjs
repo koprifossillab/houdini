@@ -140,7 +140,18 @@ const bucket = (t, now) => (!t ? 'none' : now - Date.parse(t) <= FRESH_MS ? 'wit
 export const BUCKET_LABEL = { none: '기록 없음', within_2h: '2시간 이내', within_24h: '24시간 이내', older: '24시간보다 오래됨' };
 
 // ── assemble ───────────────────────────────────────────────────────────────────────────────────────
-export function buildLive({ cards = [], signed = [], corrections = [], teamLive = null, pc = null, now = Date.now(), detail = false }) {
+// asOf (public snapshot, 감독 결정 2026-11-10): evaluate the state at a fixed past moment — every record
+// written or dated after it is left out, so a public snapshot never reflects a change made after its time.
+export function buildLive({ cards = [], signed = [], corrections = [], teamLive = null, pc = null, now = Date.now(), detail = false, asOf = null }) {
+  if (asOf !== null) {
+    // a record counts only if it existed at the mark: its file write time when known, else its own date
+    const firstSeen = c => Date.parse(c.written_at || c.at);
+    cards = cards.filter(c => firstSeen(c) <= asOf);
+    signed = signed.filter(c => Date.parse(c.at) <= asOf);
+    corrections = corrections.filter(c => Date.parse(c.at) <= asOf);
+    pc = pc && { ...pc, results: pc.results.filter(r => Date.parse(r.finished || r.started) <= asOf), placed: pc.placed.filter(x => Date.parse(x.placed_at) <= asOf) };
+    now = asOf;
+  }
   const ordered = orderCards([...cards, ...signed.map(s => ({ ...s, written_at: null }))], corrections, now);
   const pcl = pcLine(pc, now);
   const teams = LIVE_TEAMS.map(([id, label]) => {

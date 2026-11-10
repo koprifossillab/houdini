@@ -24,7 +24,7 @@ export const STEPS = [['directive', '지시'], ['make', '제작'], ['self', '자
 export const PENDING = [['director', '감독 결정'], ['qa', '② QA 검증'], ['prod', '① PROD 작업'], ['work', '③ WORK 검토'], ['user', '사용자 조치']];
 export const FRESHNESS = { fresh: '자료 최신', partial: '일부 자료 지연', missing: '자료 없음' };
 export const PROJECT_LABEL = 'Thermal Collapse · Houdini 제작';
-export const NOTE = '공개 화면입니다. 작업 이름·번호, 활동 시각, 세부 검사 내용은 공개하지 않습니다. 근거가 없으면 미확인으로 표시하고, ③ WORK 는 별도 Windows 환경이라 활동 연결이 없으며 이것은 휴식이나 중단을 뜻하지 않습니다.';
+export const NOTE = '공개 화면입니다. 작업 이름·번호, 활동 시각, 세부 검사 내용은 공개하지 않습니다. 근거가 없으면 미확인으로 표시하고, ③ WORK 는 별도 Windows 환경이라 활동 연결이 없으며 이것은 휴식이나 중단을 뜻하지 않습니다. 공개 상태는 15분 간격의 고정 시점(정각·15분·30분·45분)에만 바뀝니다.';
 
 // ── live (/api/live) ───────────────────────────────────────────────────────────────────────────────
 const statusOf = (team, key) => {

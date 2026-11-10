@@ -98,3 +98,42 @@ test('P5 authenticated services keep the detailed views (public projection only 
   const detailed = await serve(t, { ...w, publicOnly: false });
   assert.equal((await fetch(`${detailed}/Houdini/legacy.html`)).status, 200);
 });
+
+test('P6 public state changes only at 15-minute marks and is evaluated as of the mark; no Last-Modified, no cost or token data', async t => {
+  const w = await world(t);
+  const SLOT = 15 * 60 * 1000;
+  const slotStart = Math.floor(Date.now() / SLOT) * SLOT;
+  // the clock is moved one slot ahead of real time so every fixture record lies before the first mark
+  let T = slotStart + SLOT + 60000;
+  const base = await serve(t, { ...w, publicOnly: undefined, now: () => T });
+  const get = async p => { const r = await fetch(`${base}/Houdini${p}`); return { etag: r.headers.get('etag'), lm: r.headers.get('last-modified'), body: await r.text() }; };
+  const a1 = await get('/api/live'), b1 = await get('/api/board');
+  assert.equal(a1.lm, null); assert.equal(b1.lm, null);
+  // a team writes a new card inside the same slot: nothing public changes until the next mark
+  await fs.writeFile(path.join(w.handoffDir, 'TC-PROD', '20261110-1400_TC-VIS-032.json'), JSON.stringify({ schema: 'tc-handoff/1', team: 'TC-PROD', task_id: 'TC-VIS-032', title: 'x', state: 'blocked', to: 'director', evidence: [{ kind: 'commit', ref: 'c' }], at: new Date().toISOString() }));
+  T = slotStart + 2 * SLOT - 1;
+  const a2 = await get('/api/live'), b2 = await get('/api/board');
+  assert.equal(a2.body, a1.body); assert.equal(a2.etag, a1.etag);
+  assert.equal(b2.body, b1.body); assert.equal(b2.etag, b1.etag);
+  // next mark: the change appears, and only then
+  T = slotStart + 2 * SLOT + 5000;
+  const a3 = await get('/api/live');
+  assert.notEqual(a3.body, a1.body);
+  assert.equal(JSON.parse(a3.body).teams[0].status.key, 'waiting_result');
+  assert.equal(JSON.parse(a1.body).teams[0].status.key, 'waiting_user');
+  for (const x of [a1, b1, a3]) assert.doesNotMatch(x.body, /cost|token|krw|usd|원화|토큰|비용|\$/i);
+});
+
+test('P7 a snapshot leaves out records written or dated after its mark', () => {
+  const mark = Date.parse('2026-11-10T05:00:00Z');
+  const c = (file, at, written_at, o = {}) => ({ file, team: 'TC-PROD', task_id: 'TC-VIS-031', title: 'x', state: 'in_progress', verdict: null, to: null, user_action: null, evidence: [{}], grade: 'confirmed', at, written_at, ...o });
+  const before = c('a.json', '2026-11-10T04:50:00Z', '2026-11-10T04:50:00Z');
+  const after = c('b.json', '2026-11-10T05:05:00Z', '2026-11-10T05:05:00Z', { state: 'blocked', to: 'director' });
+  const backdated = c('c.json', '2026-11-10T04:55:00Z', '2026-11-10T05:07:00Z', { user_action: 'x' }); // dated before, written after
+  const live = buildLive({ cards: [before, after, backdated], now: Date.parse('2026-11-10T05:10:00Z'), detail: true, asOf: mark });
+  assert.equal(live.teams[0].report.key, 'working', 'a back-dated card written after the mark also waits — it did not exist at the mark');
+  const live2 = buildLive({ cards: [before, after], now: Date.parse('2026-11-10T05:10:00Z'), detail: true, asOf: mark });
+  assert.equal(live2.teams[0].report.key, 'working', 'a card written after the mark waits for the next one');
+  const pc = { state: 'ok', results: [{ job: 'j', state: 'running', started: '2026-11-10T05:01:00Z', finished: null, all_ok: null, images_ok: null, render_sec: null }], placed: [] };
+  assert.equal(buildLive({ cards: [], pc, now: mark + 600000, detail: true, asOf: mark }).teams[0].pc.key, 'pc_none');
+});

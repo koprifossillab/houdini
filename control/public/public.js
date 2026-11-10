@@ -40,7 +40,7 @@ function render() {
   const ban = $('banner');
   ban.hidden = !failed;
   ban.textContent = failed ? '서버 연결 실패 — 마지막으로 받은 값을 보여 줍니다. 지금 값이 아닐 수 있습니다.' : '';
-  $('served').textContent = refreshedAt ? `화면 갱신 ${clock.format(refreshedAt)} (이 브라우저 기준) · 20초마다` : '자료 없음';
+  $('served').textContent = refreshedAt ? `화면 확인 ${clock.format(refreshedAt)} (이 브라우저 기준) · 공개 상태는 15분마다 갱신` : '자료 없음';
   const v = $('view');
   v.replaceChildren();
   if (!live || !board) { v.append(h('div', { class: 'empty', text: '자료를 불러오지 못했습니다.' })); return; }
@@ -67,6 +67,6 @@ function render() {
 fetch('api/session', { cache: 'no-store' }).then(r => r.json()).then(s => { $('version').textContent = `판 ${s.version}`; }).catch(() => {});
 load(true);
 let n = 0;
-setInterval(() => { n += 1; load(n % 3 === 0); }, 20000);
+setInterval(() => { n += 1; load(n % 5 === 0); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(true); });
 })();
