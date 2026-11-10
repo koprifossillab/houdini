@@ -137,3 +137,14 @@ test('P7 a snapshot leaves out records written or dated after its mark', () => {
   const pc = { state: 'ok', results: [{ job: 'j', state: 'running', started: '2026-11-10T05:01:00Z', finished: null, all_ok: null, images_ok: null, render_sec: null }], placed: [] };
   assert.equal(buildLive({ cards: [], pc, now: mark + 600000, detail: true, asOf: mark }).teams[0].pc.key, 'pc_none');
 });
+
+test('P8 the first request in a slot still leaves out records written after the slot mark', async t => {
+  const SLOT = 15 * 60 * 1000;
+  const startSlot = Math.floor(Date.now() / SLOT);
+  const w = await world(t); // every fixture file is written now, i.e. after this slot's mark
+  const base = await serve(t, { ...w, publicOnly: undefined, now: () => (startSlot + 1) * SLOT - 1000 }); // late in the same slot: all files exist by then
+  const j = await (await fetch(`${base}/Houdini/api/live`)).json();
+  if (Math.floor(Date.now() / SLOT) !== startSlot) return t.skip('slot boundary crossed during the test');
+  assert.equal(j.teams[0].status.key, 'unverified');
+  assert.equal(j.teams[1].status.key, 'unverified');
+});
