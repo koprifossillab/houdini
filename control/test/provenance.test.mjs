@@ -241,3 +241,17 @@ test('F1: a transcription is refused unless the original location and its own ti
   const code = await new Promise(r => execFile(process.execPath, [new URL('../scripts/check-card.mjs', import.meta.url).pathname, f], e => r(e ? e.code : 0)));
   assert.equal(code, 1, 'check-card refuses it too');
 });
+
+// every /api/board source key has a label on the home screen (production 0.2.0 printed "undefined ok (2)")
+test('home source strip labels every board source; cost panel reads USD and KRW', async () => {
+  const js = await fs.readFile(new URL('../public/board.js', import.meta.url), 'utf8');
+  const m = /const SOURCE_LABEL = (\{[^}]+\})/.exec(js);
+  assert.ok(m, 'SOURCE_LABEL defined');
+  const labels = Function(`return ${m[1]}`)();
+  for (const k of ['handoff', 'decisions', 'signed_work', 'director', 'nas', 'team_live']) assert.ok(labels[k], k);
+  assert.ok(!('provenance' in labels), 'the provenance tally is not listed as a source');
+  const server = await fs.readFile(new URL('../server.mjs', import.meta.url), 'utf8');
+  for (const k of ['handoff:', 'decisions:', 'signed_work:', 'director:', 'nas:', 'team_live:']) assert.ok(server.includes(k), `server emits ${k}`);
+  for (const f of ['cost_krw', 'krw_per_hour', 'cost_usd', 'today_kst', 'last_60m']) assert.ok(js.includes(f), `cost panel uses ${f}`);
+  assert.match(js, /실제 청구액 아님/);
+});

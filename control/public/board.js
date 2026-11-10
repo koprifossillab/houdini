@@ -56,8 +56,10 @@ async function load() {
   try {
     const route = currentRoute();
     board = await getJson('api/board');
+    // token use / cost (USD · KRW) is shown on home and tech, so the team API is read on every refresh
+    teamsApi = await getJson('api/teams').catch(() => teamsApi);
     if (route === 'tech' || route === 'data') {
-      [teamsApi, overview, nas] = await Promise.all([getJson('api/teams').catch(() => null), getJson('api/overview').catch(() => null), getJson('api/nas').catch(() => null)]);
+      [overview, nas] = await Promise.all([getJson('api/overview').catch(() => null), getJson('api/nas').catch(() => null)]);
     }
     failed = false;
   } catch { failed = true; }
@@ -79,6 +81,7 @@ function render() {
   if (route !== 'home') window.scrollTo(0, 0);
 }
 
+const SOURCE_LABEL = { handoff: '인계 카드', decisions: '판정 기록', signed_work: '서명 Work 기록', director: '감독 원문 대조', nas: 'NAS 단서', team_live: '팀 세션' };
 function home(v) {
   const b = board, c = b.current;
   v.append(
@@ -121,8 +124,10 @@ function home(v) {
   if (m) v.append(h('section', { class: 'card' }, h('div', { class: 'row' }, h('h2', {}, '최신 결과물 · ', h('span', { class: 'mono', text: m.name })), h('a', { href: '#review', text: '검수 화면 →' })),
     h('div', { class: 'shots' }, m.images.slice(0, 3).map(i => h('figure', {}, h('img', { src: `nasimg/${i.id}`, alt: i.file, loading: 'lazy' }), h('figcaption', { class: 'ev', text: i.file })))), evl(m),
     h('span', { class: 'ev', text: '폴더의 SHA 목록에 있고 해시가 맞는 그림만 표시 · 시각 승인 여부는 프리뷰 검수 화면' })));
+  v.append(costSummary(teamsApi?.tokens, true));
   v.append(h('section', { class: 'card dash' }, h('span', { class: 'lbl', text: '수집 장치 상태 (작업 상태 아님)' }),
-    h('span', { class: 'ev', text: Object.entries(b.sources).map(([k, s]) => `${{ handoff: '인계 카드', decisions: '판정 기록', nas: 'NAS 단서', team_live: '팀 세션' }[k]} ${s.state}${s.count !== undefined ? ` (${s.count})` : ''}`).join(' · ') }),
+    // every source has a label; the provenance tally is not a source (it was printed as "undefined …")
+    h('span', { class: 'ev', text: Object.entries(b.sources).filter(([k]) => SOURCE_LABEL[k]).map(([k, s]) => `${SOURCE_LABEL[k]} ${s.state}${s.count !== undefined ? ` (${s.count})` : ''}`).join(' · ') }),
     h('a', { href: '#tech', text: '기술 상세 →' })));
 }
 
@@ -186,6 +191,36 @@ function review(v) {
   v.append(lay);
 }
 
+// ── token use · cost (Anthropic API list-price estimate, not a bill) ─────────────────────────────
+const INT = new Intl.NumberFormat('ko-KR');
+const usd = v => (v === null || v === undefined ? '—' : `$${v < 10 ? v.toFixed(2) : INT.format(Math.round(v))}`);
+const krw = v => (v === null || v === undefined ? '—' : `₩${INT.format(Math.round(v))}`);
+const tok = v => (v === null || v === undefined ? '—' : v >= 1e9 ? `${(v / 1e9).toFixed(2)}B` : v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(1)}K` : String(v));
+const WINDOWS = [['today_kst', '오늘 (KST)'], ['last_60m', '최근 60분'], ['last_5m', '최근 5분'], ['all', '누적']];
+function costNote(tk) {
+  const fx = tk?.fx || {};
+  return `API 정가 환산 추정 — 실제 청구액 아님 · 구독 요금제 사용분은 청구와 무관 · 원화 환산 1 USD = ₩${fx.krw_per_usd ? INT.format(fx.krw_per_usd) : '—'} (${fx.as_of || '기준일 없음'}, 고정 환율)`;
+}
+function costSummary(tk, compact) {
+  if (!tk?.server) return h('section', { class: 'card dash' }, h('span', { class: 'lbl', text: 'Claude 사용량 · 비용' }), empty('팀 세션 수집기 자료가 없어 표시할 수 없음'));
+  const w = tk.server, r = tk.server_rate || {};
+  const tiles = (compact ? WINDOWS.filter(([k]) => k !== 'last_5m') : WINDOWS).map(([k, label]) => h('div', { class: 'step' },
+    h('span', { class: 'lbl', text: label }), h('span', { class: 'n', text: krw(w[k]?.cost_krw) }), h('span', { class: 'ev', text: `${usd(w[k]?.cost_usd)} · ${tok(w[k]?.total_tokens)} 토큰 · 요청 ${INT.format(w[k]?.requests ?? 0)}` })));
+  tiles.push(h('div', { class: 'step' }, h('span', { class: 'lbl', text: '현재 속도 (최근 5분 기준)' }), h('span', { class: 'n', text: `${krw(r.krw_per_hour)}/시간` }), h('span', { class: 'ev', text: `${usd(r.usd_per_hour)}/시간 · ${tok(r.tokens_per_min)} 토큰/분` })));
+  return h('section', { class: 'card' },
+    h('div', { class: 'row' }, h('h2', { text: 'Claude 사용량 · 비용 (원화 환산)' }), compact ? h('a', { href: '#tech', text: '세션별 보기 →' }) : null),
+    h('div', { class: 'g4' }, tiles),
+    h('span', { class: 'ev', text: `${costNote(tk)} · 범위: ${tk.scope || '서버 전체'}` }));
+}
+function costSessions(tk) {
+  const ss = (tk?.sessions || []).slice().sort((a, b) => (b.last_at || '').localeCompare(a.last_at || ''));
+  return h('section', { class: 'card' }, h('h2', { text: '세션별 사용량 · 비용' }),
+    ss.length ? h('div', { class: 'scroll' }, h('table', {}, h('thead', {}, h('tr', {}, ['세션', '팀', '마지막 활동', '토큰', '요청', '달러', '원화'].map(t => h('th', { text: t })))),
+      h('tbody', {}, ss.map(x => h('tr', {}, h('td', { class: 'mono', text: x.name || x.id }), h('td', { text: x.team || '팀 미지정' }), h('td', { text: x.last_at ? when(x.last_at) : '—' }),
+        h('td', { text: tok(x.total_tokens) }), h('td', { text: INT.format(x.requests ?? 0) }), h('td', { text: usd(x.cost_usd) }), h('td', { text: krw(x.cost_krw) })))))) : empty('세션 기록 없음'),
+    h('span', { class: 'ev', text: costNote(tk) }));
+}
+
 function tech(v) {
   const tk = teamsApi?.tokens;
   v.append(h('h1', { text: '기술 · 검증 상세' }), h('p', { class: 'lead', text: '이 화면의 값은 홈의 작업 상태 판정에 쓰지 않습니다. 이전 관제 화면(18개 섹션)은 바뀌지 않은 채 그대로 열립니다.' }),
@@ -193,8 +228,9 @@ function tech(v) {
       h('span', { class: 'ev', text: '제작 단계 · 팀 실시간 현황 · 토큰 사용량·비용 환산 · 부서별 상태 · 미해결 문제 · 최근 판정 기록 · 데이터 출처 · 검증 항목 V2 V3 V5 · 감독 판정 기록 · 기존 실험 미리보기 · 보고서 이력 · 보고서 보기 · 실험 이력 · 코드 해시 대조 · 재현 정보 · 판정 도구 코드 · 데이터 상태 · 장면 검토' })),
     h('section', { class: 'g3' },
       h('article', { class: 'card' }, h('span', { class: 'lbl', text: '서버 Claude 사용량 · 최근 5분' }), h('span', { class: 'n', text: tk?.server_rate ? `${tk.server_rate.tokens_per_min.toLocaleString('ko-KR')} 토큰/분` : '—' }), h('span', { class: 'ev', text: tk?.server_rate ? `출력 ${tk.server_rate.output_per_min.toLocaleString('ko-KR')}/분` : '팀 세션 수집기 없음' })),
-      h('article', { class: 'card' }, h('span', { class: 'lbl', text: '비용 환산 · 추정' }), h('span', { class: 'n', text: tk?.server_rate ? `$${tk.server_rate.usd_per_hour} /시간` : '—' }), h('span', { class: 'ev', text: 'API 정가 환산 · 실제 청구액 아님' })),
+      h('article', { class: 'card' }, h('span', { class: 'lbl', text: '비용 환산 · 추정' }), h('span', { class: 'n', text: tk?.server_rate ? `${krw(tk.server_rate.krw_per_hour)}/시간` : '—' }), h('span', { class: 'ev', text: tk?.server_rate ? `${usd(tk.server_rate.usd_per_hour)}/시간 · API 정가 환산 · 실제 청구액 아님` : 'API 정가 환산 · 실제 청구액 아님' })),
       h('article', { class: 'card' }, h('span', { class: 'lbl', text: '세션 · 프로세스' }), h('span', { text: teamsApi ? `팀 미지정 세션 ${teamsApi.unbound_live_sessions ?? '—'}` : '—' }), h('span', { class: 'ev', text: '프로세스 생존 ≠ 작업 진행' }))),
+    costSummary(tk, false), costSessions(tk),
     h('section', { class: 'card' }, h('h2', { text: '자료 출처 상태' }), h('div', { class: 'scroll' }, h('table', {}, h('thead', {}, h('tr', {}, ['출처', '상태', '설명', '마지막 시각'].map(t => h('th', { text: t })))),
       h('tbody', {}, [
         ...Object.entries(board.sources).filter(([k]) => !['team_live', 'provenance'].includes(k)).map(([k, s]) => h('tr', {}, h('td', { text: { handoff: '인계 카드', decisions: '판정 기록 (④ 전사)', signed_work: '서명 Work 기록 (③)', director: '감독 원문 대조', nas: 'NAS 단서' }[k] || k }), h('td', { text: s.state }), h('td', { text: s.message || '' }), h('td', { text: s.newest_at ? when(s.newest_at) : s.checked_at ? when(s.checked_at) : s.observed_at ? when(s.observed_at) : '—' }))),
