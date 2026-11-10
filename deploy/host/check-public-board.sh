@@ -35,5 +35,17 @@ out=$(CHECK_LEAK_TERMS="${CHECK_LEAK_TERMS:-}" node "$HERE/../../control/scripts
 printf '%s\n' "$out" | tail -3
 [ $rc = 0 ] && ok "공개 노출 크롤" || bad "공개 노출 크롤"
 
+# 5 (② QA REVIEW 421763a-1) the real nginx: a request through the portal from a NON-loopback address of this
+#   host must get the public view, also with a forged X-Real-IP — proves nginx overwrites the header in production.
+#   CHECK_PORTAL=http://<host LAN address>/Houdini  CHECK_PORTAL_FROM=<that address>  (both optional; skipped if unset)
+if [ -n "${CHECK_PORTAL:-}" ] && [ -n "${CHECK_PORTAL_FROM:-}" ]; then
+  pp() { curl -s --interface "$CHECK_PORTAL_FROM" "$@" "$CHECK_PORTAL/api/session" | python3 -I -c 'import json,sys;print(json.load(sys.stdin).get("public") is True)' 2>/dev/null; }
+  [ "$(pp)" = True ] && ok "포털(실제 nginx) 비루프백 주소 → 공개" || bad "포털 비루프백 주소에 상세 화면"
+  [ "$(pp -H 'X-Real-IP: 127.0.0.1')" = True ] && ok "포털 + X-Real-IP 127.0.0.1 위조 → 공개" || bad "포털 X-Real-IP 위조로 상세 화면"
+  [ "$(pp -H 'X-Forwarded-For: 127.0.0.1')" = True ] && ok "포털 + X-Forwarded-For 위조 → 공개" || bad "포털 XFF 위조로 상세 화면"
+else
+  echo "SKIP  포털 실제 nginx 점검 (CHECK_PORTAL·CHECK_PORTAL_FROM 미지정)"
+fi
+
 [ $fail = 0 ] && echo "공개 점검 통과" || echo "공개 점검 실패"
 exit $fail

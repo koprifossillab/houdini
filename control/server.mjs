@@ -332,7 +332,7 @@ export function createApp(cfg = configFromEnv()) {
       const [file, type] = ASSETS[p];
       return send(req, res, 200, await fs.readFile(path.join(ROOT, 'public', file)), type);
     }
-    if (p === '/api/session') return send(req, res, 200, { local_detail: publicOnly, auth: auth.mode, configured: auth.configured, authorized: true, user: a.user, demo: cfg.demo, version: VERSION, tls_required: cfg.requireTls });
+    if (p === '/api/session') return send(req, res, 200, { local_detail: publicOnly && localViewer(req), auth: auth.mode, configured: auth.configured, authorized: true, user: a.user, demo: cfg.demo, version: VERSION, tls_required: cfg.requireTls });
     if (p === '/api/overview') {
       const g = await gather();
       const reports = await reportIndex(g);
