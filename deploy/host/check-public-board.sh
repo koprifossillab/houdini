@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Read-only post-deploy check for the PUBLIC control room 0.3.x (TC-DASH-008 운영 공개 정책).
+# Read-only post-deploy check of the PUBLIC view of the control room 0.3.x (TC-DASH-008 운영 공개 정책).
 #   deploy/host/check-public-board.sh <base URL ending in /Houdini>   e.g. http://127.0.0.1:8097/Houdini
 #   CHECK_LEAK_TERMS="term1,term2"  private words that must not appear in any response (runtime only, never printed)
 #   CHECK_EXPECT_VERSION=0.3.0      the version /api/session must report
@@ -10,12 +10,14 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 fail=0
 ok()   { printf 'PASS  %s\n' "$1"; }
 bad()  { printf 'FAIL  %s\n' "$1"; fail=1; }
-code() { curl -s -o /dev/null -w '%{http_code}' --path-as-is "$@"; }
+# TC-DASH-009: pose as a remote client forwarded by nginx (a viewer on this computer gets the detailed views)
+RH='X-Real-IP: 198.51.100.7'
+code() { curl -s -H "$RH" -o /dev/null -w '%{http_code}' --path-as-is "$@"; }
 
 # 1 health: public form only (status, service, version)
-h=$(curl -s "$B/healthz")
+h=$(curl -s -H "$RH" "$B/healthz")
 echo "$h" | python3 -I -c 'import json,sys;d=json.load(sys.stdin);sys.exit(0 if set(d)=={"status","service","version"} and d["status"]=="ok" else 1)' && ok "healthz 공개 형식" || bad "healthz 형식"
-v=$(curl -s "$B/api/session" | python3 -I -c 'import json,sys;d=json.load(sys.stdin);print(d.get("version","") if d.get("public") is True else "NOT-PUBLIC")' 2>/dev/null)
+v=$(curl -s -H "$RH" "$B/api/session" | python3 -I -c 'import json,sys;d=json.load(sys.stdin);print(d.get("version","") if d.get("public") is True else "NOT-PUBLIC")' 2>/dev/null)
 [ "$v" = "${CHECK_EXPECT_VERSION:-$v}" ] && [ "$v" != NOT-PUBLIC ] && ok "version $v · public" || bad "version/public: $v (expected ${CHECK_EXPECT_VERSION:-?})"
 
 # 2 public files and APIs open; detailed screens and APIs closed
@@ -23,9 +25,9 @@ for p in "" static/public.js static/board.css static/icon.svg api/board api/live
 for p in legacy.html static/board.js static/app.js api/overview api/teams api/nas api/reports api/experiments api/media; do [ "$(code "$B/$p")" = 404 ] && ok "GET /$p 404" || bad "GET /$p 열려 있음"; done
 
 # 3 no change times: no Last-Modified / check-time header; body and ETag stable across two requests
-hd=$(curl -s -D - -o /dev/null "$B/api/live")
+hd=$(curl -s -H "$RH" -D - -o /dev/null "$B/api/live")
 case "$hd" in *[Ll]ast-[Mm]odified*|*[Xx]-[Ll]ive-[Cc]hecked*) bad "시각 헤더 있음";; *) ok "Last-Modified·확인 시각 헤더 없음";; esac
-e1=$(curl -s -D - -o /dev/null "$B/api/live" | grep -i '^etag'); e2=$(curl -s -D - -o /dev/null "$B/api/live" | grep -i '^etag')
+e1=$(curl -s -H "$RH" -D - -o /dev/null "$B/api/live" | grep -i '^etag'); e2=$(curl -s -H "$RH" -D - -o /dev/null "$B/api/live" | grep -i '^etag')
 [ -n "$e1" ] && [ "$e1" = "$e2" ] && ok "ETag 연속 요청 동일" || bad "ETag 변동"
 
 # 4 full exposure crawl (closed vocabulary + private patterns), same checker the tests use

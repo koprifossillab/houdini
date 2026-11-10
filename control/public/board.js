@@ -342,7 +342,7 @@ function data(v) {
 }
 
 window.addEventListener('hashchange', () => { if (['tech', 'data'].includes(currentRoute()) && !overview) load(); else render(); });
-fetch('api/session', { cache: 'no-store' }).then(r => r.json()).then(s => { $('version').textContent = `판 ${s.version} · 스테이징`; }).catch(() => {});
+fetch('api/session', { cache: 'no-store' }).then(r => r.json()).then(s => { $('version').textContent = s.local_detail ? `판 ${s.version} · 이 컴퓨터에서만 보이는 상세 화면` : `판 ${s.version}`; }).catch(() => {});
 load();
 setInterval(load, 30000);
 loadLive();

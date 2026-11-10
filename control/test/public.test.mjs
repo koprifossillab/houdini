@@ -32,7 +32,7 @@ const ROUTES = ['/', '/index.html', '/legacy.html', '/static/board.js', '/static
 const PUBLIC_OK = new Set(['/', '/index.html', '/static/public.js', '/static/board.css', '/static/icon.svg', '/api/session', '/api/board', '/api/live', '/api/board?detail=1&sort=at&q=TC-VIS-031', '/api/live?detail=1&team=TC-PROD', '/healthz']);
 
 test('P1 crawl: every public response is fixed vocabulary or a clean static file; everything else is the same 404', async t => {
-  const base = await serve(t, { ...(await world(t)), publicOnly: undefined });
+  const base = await serve(t, { ...(await world(t)), publicOnly: undefined, localDetail: false });
   for (const r of ROUTES) for (const method of ['GET', 'HEAD', 'POST']) {
     const res = await fetch(`${base}/Houdini${r}`, { method });
     const body = await res.text();
@@ -49,7 +49,7 @@ test('P1 crawl: every public response is fixed vocabulary or a clean static file
 });
 
 test('P2 query strings do not change public output; error bodies are generic', async t => {
-  const base = await serve(t, { ...(await world(t)), publicOnly: undefined });
+  const base = await serve(t, { ...(await world(t)), publicOnly: undefined, localDetail: false });
   const a = await (await fetch(`${base}/Houdini/api/board`)).json();
   const b = await (await fetch(`${base}/Houdini/api/board?detail=1&sort=at&q=TC-VIS-031&debug=true`)).json();
   assert.deepEqual(a, b);
@@ -93,7 +93,7 @@ test('P4 public states: coarse words only, ③ not connected, stale → 미확�
 
 test('P5 authenticated services keep the detailed views (public projection only without authentication)', async t => {
   const w = await world(t);
-  const open = await serve(t, { ...w, publicOnly: undefined });
+  const open = await serve(t, { ...w, publicOnly: undefined, localDetail: false });
   assert.equal((await fetch(`${open}/Houdini/legacy.html`)).status, 404);
   const detailed = await serve(t, { ...w, publicOnly: false });
   assert.equal((await fetch(`${detailed}/Houdini/legacy.html`)).status, 200);
@@ -105,7 +105,7 @@ test('P6 public state changes only at 15-minute marks and is evaluated as of the
   const slotStart = Math.floor(Date.now() / SLOT) * SLOT;
   // the clock is moved one slot ahead of real time so every fixture record lies before the first mark
   let T = slotStart + SLOT + 60000;
-  const base = await serve(t, { ...w, publicOnly: undefined, now: () => T });
+  const base = await serve(t, { ...w, publicOnly: undefined, localDetail: false, now: () => T });
   const get = async p => { const r = await fetch(`${base}/Houdini${p}`); return { etag: r.headers.get('etag'), lm: r.headers.get('last-modified'), body: await r.text() }; };
   const a1 = await get('/api/live'), b1 = await get('/api/board');
   assert.equal(a1.lm, null); assert.equal(b1.lm, null);
@@ -142,7 +142,7 @@ test('P8 the first request in a slot still leaves out records written after the 
   const SLOT = 15 * 60 * 1000;
   const startSlot = Math.floor(Date.now() / SLOT);
   const w = await world(t); // every fixture file is written now, i.e. after this slot's mark
-  const base = await serve(t, { ...w, publicOnly: undefined, now: () => (startSlot + 1) * SLOT - 1000 }); // late in the same slot: all files exist by then
+  const base = await serve(t, { ...w, publicOnly: undefined, localDetail: false, now: () => (startSlot + 1) * SLOT - 1000 }); // late in the same slot: all files exist by then
   const j = await (await fetch(`${base}/Houdini/api/live`)).json();
   if (Math.floor(Date.now() / SLOT) !== startSlot) return t.skip('slot boundary crossed during the test');
   assert.equal(j.teams[0].status.key, 'unverified');
@@ -158,11 +158,11 @@ test('P9 (QA REVIEW 3441d65) public snapshots use only inputs that can be cut at
   // the clock stays at real time so the collector file counts as fresh (it is read against this clock)
   const T = Date.now();
   if (Math.floor((T + 60000) / SLOT) !== Math.floor(T / SLOT)) return t.skip('too close to a slot boundary');
-  const a = await serve(t, { ...w, teamLiveDir: tl, publicOnly: undefined, now: () => T });
+  const a = await serve(t, { ...w, teamLiveDir: tl, publicOnly: undefined, localDetail: false, now: () => T });
   const one = await (await fetch(`${a}/Houdini/api/live`)).text();
   // the collector changes and the service restarts inside the same slot: the public body is byte-identical
   await fs.writeFile(path.join(tl, 'team_live.json'), JSON.stringify(doc('IDLE')));
-  const b = await serve(t, { ...w, teamLiveDir: tl, publicOnly: undefined, now: () => T + 60000 });
+  const b = await serve(t, { ...w, teamLiveDir: tl, publicOnly: undefined, localDetail: false, now: () => T + 60000 });
   const two = await (await fetch(`${b}/Houdini/api/live`)).text();
   assert.equal(two, one);
   assert.ok(JSON.parse(one).teams.every(x => x.execution.key !== 'confirmed'), 'session activity is not used publicly');

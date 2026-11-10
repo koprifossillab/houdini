@@ -81,6 +81,8 @@ export function configFromEnv(env = process.env) {
     recordsFile: env.HPC_RECORDS || path.join(ROOT, 'data', 'records.json'),
     authMode: env.HPC_AUTH || 'basic',
     allowOpen: env.HPC_ALLOW_OPEN === '1',
+    // TC-DASH-009: detailed views for a viewer on this computer (default on; '0' = public view for everyone)
+    localDetail: env.HPC_LOCAL_DETAIL !== '0',
     users: env.HPC_USERS || '',
     demo: env.HPC_DEMO === '1',
     demoState: ['live', 'stale', 'missing', 'error'].includes(env.HPC_DEMO_STATE) ? env.HPC_DEMO_STATE : 'live',
@@ -153,6 +155,9 @@ export function createApp(cfg = configFromEnv()) {
   // built by lib/public.mjs from fixed vocabularies. cfg.publicOnly=false exists for the unit tests of the
   // detailed views only; configFromEnv never sets it.
   const publicOnly = cfg.publicOnly ?? cfg.authMode === 'off';
+  const localDetail = cfg.localDetail ?? true;
+  // TC-DASH-009 (owner 2026-11-10): the detailed views open without authentication ONLY to a viewer on this
+  // computer. Anyone else keeps the public view above. HPC_LOCAL_DETAIL=0 turns this off.
   const liveDetail = true; // computed in full inside; the public projection decides what leaves
   let pcCache = { at: 0, value: null };
   let liveCache = { at: 0, body: null, etag: null, checked_at: null };
@@ -253,6 +258,18 @@ export function createApp(cfg = configFromEnv()) {
     const ip = trusted(req) ? String(req.headers['x-real-ip'] || '') : '';
     return /^[0-9a-f.:]{3,45}$/i.test(ip) ? ip : (req.socket.remoteAddress || 'unknown');
   };
+  // "this computer": the address nginx saw (X-Real-IP, which nginx overwrites with $remote_addr, so a remote
+  // client cannot choose it) is loopback; or a request reached the loopback-only port directly without nginx
+  // (no X-Real-IP), which only a process on this computer can do. X-Forwarded-For is never used (nginx appends
+  // the client's own value to it). A socket that is not a trusted proxy never gets the detailed views.
+  const LOOP = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+  const localViewer = req => {
+    if (!localDetail || !trusted(req)) return false;
+    const xr = req.headers['x-real-ip'];
+    if (xr === undefined) return true;
+    return LOOP.has(String(xr).trim());
+  };
+  const isPublic = req => publicOnly && !localViewer(req);
   const protoOf = req => (req.socket.encrypted ? 'https' : trusted(req) && /^https$/i.test(String(req.headers['x-forwarded-proto'] || '')) ? 'https' : 'http');
 
   // asOf: only records dated at or before that moment (public snapshots)
@@ -300,7 +317,7 @@ export function createApp(cfg = configFromEnv()) {
 
     // the only open endpoint: liveness + source states, no research content, no paths
     if (p === '/healthz') {
-      if (publicOnly) return send(req, res, 200, { status: 'ok', service: 'houdini-production-control', version: VERSION });
+      if (isPublic(req)) return send(req, res, 200, { status: 'ok', service: 'houdini-production-control', version: VERSION });
       const g = await gather();
       const degraded = g.snap.state !== 'live' || g.records.state !== 'ok' || (!cfg.demo && g.ledger.state !== 'ok');
       const tl = cfg.demo ? { state: 'missing' } : await teamLiveView(cfg.teamLiveDir);
@@ -310,12 +327,12 @@ export function createApp(cfg = configFromEnv()) {
     if (cfg.requireTls && protoOf(req) !== 'https') return send(req, res, 403, { error: 'HTTPS 로만 열람할 수 있음' });
     const a = await auth.check(req.headers.authorization, clientOf(req));
     if (!a.ok) return deny(req, res, a);
-    if (publicOnly) return handlePublic(req, res, p);
+    if (isPublic(req)) return handlePublic(req, res, p);
     if (ASSETS[p]) {
       const [file, type] = ASSETS[p];
       return send(req, res, 200, await fs.readFile(path.join(ROOT, 'public', file)), type);
     }
-    if (p === '/api/session') return send(req, res, 200, { auth: auth.mode, configured: auth.configured, authorized: true, user: a.user, demo: cfg.demo, version: VERSION, tls_required: cfg.requireTls });
+    if (p === '/api/session') return send(req, res, 200, { local_detail: publicOnly, auth: auth.mode, configured: auth.configured, authorized: true, user: a.user, demo: cfg.demo, version: VERSION, tls_required: cfg.requireTls });
     if (p === '/api/overview') {
       const g = await gather();
       const reports = await reportIndex(g);

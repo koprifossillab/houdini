@@ -6,6 +6,9 @@ import { checkPublic, scanText } from '../lib/public.mjs';
 
 const base = (process.argv[2] || '').replace(/\/+$/, '');
 if (!/^https?:\/\//.test(base)) { console.error('사용법: node scripts/check-public.mjs <기본 주소>'); process.exit(2); }
+// TC-DASH-009: a viewer on this computer gets the detailed views, so the crawl poses as a remote client the way
+// nginx would forward one (X-Real-IP from TEST-NET-2, never a real address)
+const VIEWER = { 'X-Real-IP': '198.51.100.7' };
 const terms = (process.env.CHECK_LEAK_TERMS || '').split(',').map(s => s.trim()).filter(Boolean);
 const OK = ['/', '/index.html', '/static/public.js', '/static/board.css', '/static/icon.svg', '/api/session', '/api/board', '/api/live', '/healthz',
   '/api/board?detail=1&sort=at&q=TC', '/api/live?detail=1&team=TC-PROD'];
@@ -17,7 +20,7 @@ const bad = (m) => { fail += 1; console.log(`FAIL  ${m}`); };
 for (const p of [...OK, ...CLOSED]) {
   for (const method of ['GET', 'HEAD', 'POST']) {
     let r, body;
-    try { r = await fetch(base + p, { method, redirect: 'manual' }); body = await r.text(); } catch { bad(`${method} ${p} 연결 실패`); continue; }
+    try { r = await fetch(base + p, { method, redirect: 'manual', headers: VIEWER }); body = await r.text(); } catch { bad(`${method} ${p} 연결 실패`); continue; }
     const w = `${method} ${p} → ${r.status}`;
     if (method === 'POST') { if (r.status !== 405) bad(`${w} (405 기대)`); continue; }
     if (OK.includes(p) ? r.status !== 200 : ![400, 404].includes(r.status)) bad(`${w} (${OK.includes(p) ? '200' : '404'} 기대)`);
