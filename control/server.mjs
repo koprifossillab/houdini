@@ -19,6 +19,7 @@ import { directorOriginals } from './lib/director.mjs';
 import { nasClues, nasImage, publicNas } from './lib/nas.mjs';
 import { buildLive, readCorrections } from './lib/live.mjs';
 import { readPcRuns } from './lib/pcrun.mjs';
+import { publicLive, publicBoard, publicSession } from './lib/public.mjs';
 import { buildBoard } from './lib/board.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -47,6 +48,14 @@ const ASSETS = {
   '/static/board.css': ['board.css', 'text/css; charset=utf-8'],
   '/static/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/static/style.css': ['style.css', 'text/css; charset=utf-8'],
+  '/static/icon.svg': ['icon.svg', 'image/svg+xml'],
+};
+// TC-DASH-008 public policy: an unauthenticated service serves only these files and the public APIs
+const PUBLIC_ASSETS = {
+  '/': ['public.html', 'text/html; charset=utf-8'],
+  '/index.html': ['public.html', 'text/html; charset=utf-8'],
+  '/static/public.js': ['public.js', 'text/javascript; charset=utf-8'],
+  '/static/board.css': ['board.css', 'text/css; charset=utf-8'],
   '/static/icon.svg': ['icon.svg', 'image/svg+xml'],
 };
 
@@ -140,7 +149,11 @@ export function createApp(cfg = configFromEnv()) {
 
   // TC-DASH-008 "지금": scanned at most every 10 s (PC records every 60 s) whatever the number of viewers.
   // Detail (task names, times, feed) only when viewers are authenticated; an open service gets coarse states.
-  const liveDetail = cfg.authMode !== 'off';
+  // Owner decision 2026-11-10: without authentication the whole service is public-only — every response is
+  // built by lib/public.mjs from fixed vocabularies. cfg.publicOnly=false exists for the unit tests of the
+  // detailed views only; configFromEnv never sets it.
+  const publicOnly = cfg.publicOnly ?? cfg.authMode === 'off';
+  const liveDetail = true; // computed in full inside; the public projection decides what leaves
   let pcCache = { at: 0, value: null };
   let liveCache = { at: 0, body: null, etag: null, checked_at: null };
   async function loadLive() {
@@ -162,9 +175,10 @@ export function createApp(cfg = configFromEnv()) {
       team_live: { state: tl?.state || 'missing', ...(liveDetail ? { observed_at: tl?.generated_at || null } : {}) },
       pc_runs: { state: pcCache.value.state, ...(liveDetail ? { checked_at: pcCache.value.checked_at, results: pcCache.value.results.length, placed: pcCache.value.placed.length } : {}) },
     };
-    const body = JSON.stringify(live);
+    const body = JSON.stringify(publicOnly ? publicLive(live, live.sources) : live);
     // the ETag covers the content only; the check time travels in a header so a 304 still updates it
-    liveCache = { at: now, body, etag: `"${crypto.createHash('sha256').update(body).digest('hex').slice(0, 32)}"`, checked_at };
+    // (not in public mode: freshness is published as a state word, no times)
+    liveCache = { at: now, body, etag: `"${crypto.createHash('sha256').update(body).digest('hex').slice(0, 32)}"`, checked_at, live };
     return liveCache;
   }
 
@@ -219,6 +233,37 @@ export function createApp(cfg = configFromEnv()) {
   };
   const protoOf = req => (req.socket.encrypted ? 'https' : trusted(req) && /^https$/i.test(String(req.headers['x-forwarded-proto'] || '')) ? 'https' : 'http');
 
+  async function boardInternal() {
+    const [cards, decisions, nas, tl, signed, originals] = await Promise.all([
+      readCards(cfg.demo ? null : cfg.handoffDir), readDecisions(cfg.demo ? null : cfg.decisionsDir),
+      nasClues(cfg.demo ? null : cfg.nas), cfg.demo ? Promise.resolve(null) : teamLiveView(cfg.teamLiveDir),
+      readSignedWork(cfg.demo ? null : cfg.workActivityDir, path.join(ROOT, 'data', 'work-public.pem')),
+      directorOriginals(cfg.demo ? null : cfg.directorDir),
+    ]);
+    const allCards = [...cards.items, ...signed.items].sort((a, b) => a.at.localeCompare(b.at));
+    return { cards, decisions, nas, tl, signed, originals, allCards, board: buildBoard({ cards: allCards, decisions: decisions.items, originals, nas, teamLive: tl, now: Date.now() }) };
+  }
+
+  // public-only service: fixed files and the two public APIs; everything else is the same plain 404
+  // (query strings are ignored — there is no search, sort or filter input)
+  async function handlePublic(req, res, p) {
+    if (PUBLIC_ASSETS[p]) {
+      const [file, type] = PUBLIC_ASSETS[p];
+      return send(req, res, 200, await fs.readFile(path.join(ROOT, 'public', file)), type);
+    }
+    if (p === '/api/session') return send(req, res, 200, publicSession(VERSION));
+    if (p === '/api/live') {
+      const l = await loadLive();
+      if (String(req.headers['if-none-match'] || '') === l.etag) { res.writeHead(304, { 'Cache-Control': 'no-cache', ...SECURITY, ETag: l.etag }); return res.end(); }
+      return send(req, res, 200, l.body, 'application/json; charset=utf-8', { ETag: l.etag, 'Cache-Control': 'no-cache' });
+    }
+    if (p === '/api/board') {
+      const [{ board }, l] = await Promise.all([boardInternal(), loadLive()]);
+      return send(req, res, 200, publicBoard(board, l.live, l.live.sources));
+    }
+    return send(req, res, 404, { error: '없음' });
+  }
+
   async function handle(req, res) {
     if (!['GET', 'HEAD'].includes(req.method)) return send(req, res, 405, { error: '조회 전용 서비스' }, undefined, { Allow: 'GET, HEAD' });
     const host = String(req.headers.host || '').toLowerCase().replace(/:\d+$/, '').replace(/^\[|\]$/g, '');
@@ -231,6 +276,7 @@ export function createApp(cfg = configFromEnv()) {
 
     // the only open endpoint: liveness + source states, no research content, no paths
     if (p === '/healthz') {
+      if (publicOnly) return send(req, res, 200, { status: 'ok', service: 'houdini-production-control', version: VERSION });
       const g = await gather();
       const degraded = g.snap.state !== 'live' || g.records.state !== 'ok' || (!cfg.demo && g.ledger.state !== 'ok');
       const tl = cfg.demo ? { state: 'missing' } : await teamLiveView(cfg.teamLiveDir);
@@ -240,6 +286,7 @@ export function createApp(cfg = configFromEnv()) {
     if (cfg.requireTls && protoOf(req) !== 'https') return send(req, res, 403, { error: 'HTTPS 로만 열람할 수 있음' });
     const a = await auth.check(req.headers.authorization, clientOf(req));
     if (!a.ok) return deny(req, res, a);
+    if (publicOnly) return handlePublic(req, res, p);
     if (ASSETS[p]) {
       const [file, type] = ASSETS[p];
       return send(req, res, 200, await fs.readFile(path.join(ROOT, 'public', file)), type);
@@ -296,7 +343,7 @@ export function createApp(cfg = configFromEnv()) {
     }
     if (p === '/api/live') {
       const l = await loadLive();
-      const hdr = { ETag: l.etag, 'X-Live-Checked-At': l.checked_at };
+      const hdr = publicOnly ? { ETag: l.etag } : { ETag: l.etag, 'X-Live-Checked-At': l.checked_at };
       if (String(req.headers['if-none-match'] || '') === l.etag) {
         res.writeHead(304, { 'Cache-Control': 'no-cache', ...SECURITY, ...hdr });
         return res.end();

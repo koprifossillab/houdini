@@ -59,7 +59,7 @@ export async function ledgerFixture(t) {
 }
 
 export async function serve(t, cfg) {
-  const server = createApp({ host: '127.0.0.1', basePath: '/Houdini', allowedHosts: ['127.0.0.1', 'localhost'], authMode: 'off', users: '', demo: false, requireTls: false, trustedProxies: ['127.0.0.1', '::ffff:127.0.0.1'], recordsFile: new URL('../data/records.json', import.meta.url).pathname, ...cfg });
+  const server = createApp({ host: '127.0.0.1', basePath: '/Houdini', allowedHosts: ['127.0.0.1', 'localhost'], authMode: 'off', users: '', demo: false, requireTls: false, trustedProxies: ['127.0.0.1', '::ffff:127.0.0.1'], recordsFile: new URL('../data/records.json', import.meta.url).pathname, publicOnly: false, ...cfg });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   t.after(() => new Promise(r => { server.closeAllConnections?.(); server.close(r); }));
   return `http://127.0.0.1:${server.address().port}`;

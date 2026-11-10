@@ -125,7 +125,7 @@ async function fixture(t) {
   return hand;
 }
 
-test('L8 HTTP: open service gets coarse JSON, ETag/304 with check time header, writes refused, files untouched', async t => {
+test('L8 HTTP (detail service): ETag/304 with check time header, writes refused, files untouched', async t => {
   const hand = await fixture(t);
   const before = await fs.stat(path.join(hand, 'TC-PROD', '20261110-1300_TC-VIS-030.json'));
   const base = await serve(t, { handoffDir: hand });
@@ -134,14 +134,11 @@ test('L8 HTTP: open service gets coarse JSON, ETag/304 with check time header, w
   const etag = r.headers.get('etag');
   assert.ok(etag && r.headers.get('x-live-checked-at'));
   const j = await r.json();
-  assert.equal(j.detail, false);
-  assert.ok(!JSON.stringify(j).includes('작업 제목 X'));
   assert.equal(j.teams.find(x => x.team === 'TC-PROD').report.key, 'wait_qa');
   const r2 = await fetch(`${base}/Houdini/api/live`, { headers: { 'If-None-Match': etag } });
   assert.equal(r2.status, 304);
   assert.ok(r2.headers.get('x-live-checked-at'));
   for (const m of ['POST', 'PUT', 'DELETE', 'PATCH']) assert.equal((await fetch(`${base}/Houdini/api/live`, { method: m })).status, 405);
-  // /api/board keeps its 0.2.2 shape — no write time leaks into it
   const b = await (await fetch(`${base}/Houdini/api/board`)).json();
   assert.ok(!JSON.stringify(b).includes('written_at'));
   assert.ok(['actions_past', 'history_control', 'done_unverified', 'control'].every(k => k in b));
@@ -152,7 +149,7 @@ test('L8 HTTP: open service gets coarse JSON, ETag/304 with check time header, w
 
 test('L9 HTTP: authenticated viewers get detail; unauthenticated requests are refused', async t => {
   const hand = await fixture(t);
-  const base = await serve(t, { handoffDir: hand, authMode: 'basic', users: `viewer:${hashPassword('correct horse battery')}` });
+  const base = await serve(t, { handoffDir: hand, authMode: 'basic', publicOnly: undefined, users: `viewer:${hashPassword('correct horse battery')}` });
   assert.equal((await fetch(`${base}/Houdini/api/live`)).status, 401);
   const j = await (await fetch(`${base}/Houdini/api/live`, { headers: { Authorization: `Basic ${Buffer.from('viewer:correct horse battery').toString('base64')}` } })).json();
   assert.equal(j.detail, true);
