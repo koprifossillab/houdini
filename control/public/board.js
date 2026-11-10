@@ -92,23 +92,29 @@ function home(v) {
       h('span', {}, grade('confirmed'), '담당 세션 제출 (작성자 신원 미검증)'), h('span', {}, grade('signed'), '③ 서명 검증 — 무결성만, 신원 증명 아님'), h('span', {}, grade('transcribed'), '다른 기록에서 옮겨 적음 — 확정 아님'),
       h('span', {}, grade('valid_decision'), '감독 원문 일치 + 사용자 확인'), h('span', {}, grade('clue'), '폴더 이름·파일 존재 — 상태·승인 확정 안 함'), h('span', {}, grade('claim'), '근거 없는 카드')),
   );
-  const acts = b.actions;
+  // TC-DASH-007: home counts production actions that are needed now; control-room work and past user records
+  // are listed apart (issues screen)
+  const acts = b.actions.filter(a => a.kind !== 'control');
+  const ctlActs = b.actions.filter(a => a.kind === 'control');
   const count = who => acts.filter(a => a.who === who).length;
   v.append(h('section', { class: 'g4' },
-    h('article', { class: 'card' }, h('span', { class: 'lbl', text: '1 · 현재 진행 중인 작업' }),
+    h('article', { class: 'card' }, h('span', { class: 'lbl', text: `1 · 현재 진행 중인 제작 작업${c.open_count > 1 ? ` (열린 작업 ${c.open_count})` : ''}` }),
       h('div', { class: 'row' }, h('b', { text: '실제 작업 상태 · 지금' }), state(c.now.state, c.now.label)), h('span', { class: 'ev', text: c.now.basis }),
       c.last ? h('div', { class: 'split' }, h('span', { class: 'lbl', text: `마지막 확인된 상태 · ${when(c.last.at, c.last.at_precision)}` }),
         h('div', { class: 'row' }, h('span', { class: 'big mono', text: c.task_id }), h('span', { class: 'ev', text: c.team_label })),
-        h('span', { text: c.last.title }), h('span', {}, lastCard(c.last), c.last.to_label ? h('span', { class: 'ev', text: `  → ${c.last.to_label}` }) : null), evl(c.last)) : empty('인계 카드가 아직 없습니다.')),
+        h('span', { text: c.last.title }), h('span', {}, lastCard(c.last), c.last.to_label ? h('span', { class: 'ev', text: `  → ${c.last.to_label}` }) : null), evl(c.last),
+        c.also_open?.length ? h('span', { class: 'ev', text: `다른 열린 제작 작업: ${c.also_open.map(x => x.task_id).join(' · ')}` }) : null) : empty('열린 제작 작업 기록 없음 — 미확인')),
     h('article', { class: 'card' }, h('span', { class: 'lbl', text: '2 · 실제 실행 상태' }),
       h('div', { class: 'row' }, h('b', { text: 'PC Houdini·Karma · 지금' }), state('unverified')), h('span', { class: 'ev', text: b.execution.now.basis }),
       b.execution.last_run ? h('div', { class: 'split' }, h('span', { class: 'lbl', text: '마지막으로 확인된 실행' }), h('span', { class: 'mono ev', text: b.execution.last_run.name }), evl(b.execution.last_run)) : empty('실행 기록 단서 없음')),
     h('article', { class: 'card' }, h('span', { class: 'lbl', text: '3 · 마지막 완료 작업' }),
-      b.last_done ? [h('span', { class: 'big mono', text: b.last_done.task_id || '' }), h('span', { text: b.last_done.title }), b.last_done.verdict ? h('span', {}, verdict(b.last_done.verdict, b.last_done.verdict_scope)) : null, evl(b.last_done)] : empty('완료 카드·종료 기록 없음')),
+      b.last_done ? [h('span', { class: 'big mono', text: b.last_done.task_id || '' }), h('span', { text: b.last_done.title }), b.last_done.verdict ? h('span', {}, verdict(b.last_done.verdict, b.last_done.verdict_scope)) : null, evl(b.last_done), h('span', { class: 'ev', text: '과거 완료 기록 — 현재 작업 아님' })] : empty('완료된 제작 작업 기록 없음 — 미확인')),
     h('article', { class: 'card focus' }, h('span', { class: 'lbl', text: '4 · 다음 행동' }),
       ...[['director', '감독 결정'], ['TC-WORK', '③ WORK 검토'], ['TC-QA', '② QA 검증'], ['TC-PROD', '① PROD 작업'], ['user', '사용자 조치']].map(([k, l]) => h('div', { class: 'row' }, h('span', { text: l }), h('span', { class: 'n', text: String(count(k)) }))),
-      h('span', { class: 'ev', text: '인계 카드의 받는 쪽이 아직 답하지 않은 것만 셉니다' }), h('a', { href: '#issues', text: '승인 대기 목록 →' })),
+      h('span', { class: 'ev', text: `제작 작업에서 지금 필요한 것만 셉니다 (받는 쪽이 아직 답하지 않음 · 사용자 조치는 24시간 이내). 관제실 작업 ${ctlActs.length}건 · 지난 사용자 기록 ${b.actions_past.length}건은 따로` }), h('a', { href: '#issues', text: '승인 대기 목록 →' })),
   ));
+  if (b.control?.open?.length) v.append(h('section', { class: 'card dash' }, h('span', { class: 'lbl', text: '관제실 개발 작업 (제작 작업과 별도)' }),
+    h('span', { class: 'ev', text: b.control.open.map(x => `${x.task_id} · ${x.team} · ${{ in_progress: '진행 기록', handed_off: '넘김', blocked: '차단' }[x.state] || x.state}${x.to_label ? ` → ${x.to_label}` : ''} · ${when(x.at)}`).join('   |   ') })));
   if (c.steps.length) v.append(h('section', { class: 'card' }, h('h2', {}, '진행 단계 · ', h('span', { class: 'mono', text: c.task_id })),
     h('div', { class: 'steps' }, c.steps.map((s, i) => h('div', { class: 'step' }, h('span', { class: 'lbl', text: `${i + 1} · ${s.label}` }), h('span', {}, stepBadge(s)), evl(s))))));
   const proj = b.issues.project;
@@ -116,7 +122,7 @@ function home(v) {
     h('article', { class: 'card' }, h('div', { class: 'row' }, h('h2', { text: '프로젝트 전체 문제' }), h('a', { href: '#issues', text: '전체 보기' })),
       proj.length ? proj.slice(0, 5).map(i => h('div', { class: 'item' }, sev(i.severity), h('div', { class: 'stack' }, h('b', { text: i.title }), i.note ? h('span', { class: 'ev', text: i.note }) : null, evl(i)))) : empty('프로젝트 전체를 막는 문제 기록 없음'),
       h('div', { class: 'ev', text: `후보 한정 문제 ${b.issues.candidate.length}건은 해당 후보에만 붙습니다 — 기준본 판정에 영향 없음` })),
-    h('article', { class: 'card' }, h('h2', { text: '다음 승인 · 검토 · 실행' }),
+    h('article', { class: 'card' }, h('h2', { text: '다음 승인 · 검토 · 실행 (제작 작업)' }),
       acts.length ? acts.slice(0, 5).map(a => h('div', { class: 'item' }, h('span', { class: 'who', text: a.who_label }), h('div', { class: 'stack' }, h('b', { text: a.what }), h('span', { class: 'ev', text: `${a.task_id} · ${when(a.since)} 부터` }), evl(a)))) : empty('대기 중인 행동 없음'),
       h('div', { class: 'ev', text: `사용자 PC 실행 요청: ${acts.some(a => a.who === 'user') ? '있음' : '없음'} — BAT 가 배치돼 있어도 감독 승인 기록과 카드가 없으면 올리지 않습니다` })),
   ));
@@ -148,20 +154,27 @@ function teams(v) {
     h('section', { class: 'g2' }, board.teams.map(teamCard)));
 }
 
-function stepsRow(r) { return h('tr', {}, h('td', {}, h('span', { class: 'mono tid', text: r.task_id }), h('br'), h('span', { class: 'ev', text: when(r.last_at) })), h('td', { text: r.title }), r.steps.map(s => h('td', {}, stepBadge(s), h('br'), evl(s)))); }
+function stepsRow(r) { return h('tr', {}, h('td', {}, h('span', { class: 'mono tid', text: r.task_id }), h('br'), h('span', { class: 'ev', text: `${when(r.last_at)}${r.open === false ? ' · 완료' : r.open ? ' · 열림' : ''}` })), h('td', { text: r.title }), r.steps.map(s => h('td', {}, stepBadge(s), h('br'), evl(s)))); }
 function issueList(list, none) { return list.length ? list.map(i => h('div', { class: 'item' }, sev(i.severity), h('div', { class: 'stack' }, h('b', { text: i.title }), i.candidate ? h('span', { class: 'ev', text: `후보 ${i.candidate} 에만 해당` }) : null, i.note ? h('span', { class: 'ev', text: i.note }) : null, evl(i)))) : empty(none); }
+function actionList(list, none) { return list.length ? list.map(a => h('div', { class: 'item' }, h('span', { class: 'who', text: a.who_label }), h('div', { class: 'stack' }, h('b', { text: a.what }), h('span', { class: 'ev', text: `${a.task_id} · ${when(a.since)} 부터 · 보낸 쪽 ${a.from}` }), evl(a)))) : empty(none); }
+function histTable(rows) { return h('div', { class: 'scroll' }, h('table', { class: 'hist' }, h('thead', {}, h('tr', {}, ['지시', '내용', '지시 근거', '제작', '자체 검증', 'QA 독립 검증', '감독 판정', '결과'].map(t => h('th', { text: t })))), h('tbody', {}, rows.map(stepsRow)))); }
 function issues(v) {
   const b = board;
+  const prodActs = b.actions.filter(a => a.kind !== 'control');
+  const ctlActs = b.actions.filter(a => a.kind === 'control');
   v.append(h('h1', { text: '문제 · 승인 대기 · 지시 이력' }),
     h('section', { class: 'g2' },
-      h('article', { class: 'card' }, h('h2', { text: `승인 · 결정 · 검토 대기 ${b.actions.length}` }),
-        b.actions.length ? b.actions.map(a => h('div', { class: 'item' }, h('span', { class: 'who', text: a.who_label }), h('div', { class: 'stack' }, h('b', { text: a.what }), h('span', { class: 'ev', text: `${a.task_id} · ${when(a.since)} 부터 · 보낸 쪽 ${a.from}` }), evl(a)))) : empty('대기 없음'),
+      h('article', { class: 'card' }, h('h2', { text: `지금 필요한 승인 · 결정 · 검토 · 조치 — 제작 ${prodActs.length}` }), actionList(prodActs, '대기 없음'),
+        h('h3', { text: `관제실 개발 작업 ${ctlActs.length}` }), actionList(ctlActs, '대기 없음'),
+        h('h3', { text: `지난 사용자 조치 기록 ${b.actions_past.length} — 처리 여부 미확인, 홈에서 세지 않음` }),
+        b.actions_past.length ? b.actions_past.map(a => h('div', { class: 'item' }, h('span', { class: 'who', text: a.who_label }), h('div', { class: 'stack' }, h('span', { text: a.what }), h('span', { class: 'ev', text: `${a.task_id} · ${when(a.since)} · ${a.past_reason}` }), evl(a)))) : empty('없음'),
         h('div', { class: 'ev', text: '승인·반려 버튼은 없습니다. 결정은 판정 기록 파일이 들어오면 반영됩니다.' })),
       h('article', { class: 'card' }, h('h2', { text: '프로젝트 전체 문제' }), issueList(b.issues.project, '기록 없음'),
         h('h3', { text: '후보 한정 문제 — 기준본과 무관' }), issueList(b.issues.candidate, '기록 없음'),
         h('h3', { text: '별도 트랙 (물리 등)' }), issueList(b.issues.track, '기록 없음'))),
-    h('section', { class: 'card' }, h('h2', { text: '작업 지시별 진행 이력' }),
-      h('div', { class: 'scroll' }, h('table', { class: 'hist' }, h('thead', {}, h('tr', {}, ['지시', '내용', '지시 근거', '제작', '자체 검증', 'QA 독립 검증', '감독 판정', '결과'].map(t => h('th', { text: t })))), h('tbody', {}, b.history.map(stepsRow))))),
+    h('section', { class: 'card' }, h('h2', { text: '제작 작업 지시별 진행 이력' }), b.history.length ? histTable(b.history) : empty('기록 없음')),
+    h('section', { class: 'card' }, h('h2', { text: '관제실 개발 작업 이력 (TC-DASH · TC-HANDOFF)' }), b.history_control?.length ? histTable(b.history_control) : empty('기록 없음')),
+    b.history_other?.length ? h('section', { class: 'card' }, h('h2', { text: '기타 기록 (지시 번호 형식 밖 — 예: ③ 자체 Work 작업)' }), histTable(b.history_other)) : null,
     h('section', { class: 'card' }, h('h2', { text: '기호의 뜻 · 서로 바꿔 쓰지 않음' }),
       h('div', { class: 'legend' }, h('span', { class: 'lbl', text: '판정' }), verdict('PASS'), '정한 기준 충족(그 범위만)', verdict('FAIL'), '기준 미달 확인', verdict('REVIEW'), '사람 판단 필요', verdict('UNVERIFIED'), '공식 판정 — 증거 부족'),
       h('div', { class: 'legend' }, h('span', { class: 'lbl', text: '상태' }), state('in_progress'), state('pending'), state('blocked'), state('done'), state('unverified'), '관제실이 최신 근거를 못 찾음 (UNVERIFIED 와 다름)'),

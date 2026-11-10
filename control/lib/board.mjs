@@ -18,6 +18,18 @@
 import { decisionValidity } from './director.mjs';
 
 export const LIVE_WINDOW_MS = 2 * 3600 * 1000;
+// TC-DASH-007: a user action counts as needed now only when it sits on a team's newest card of an open task
+// and is younger than this; older ones and those of finished tasks are listed as past, unconfirmed records.
+// (A later card from ANOTHER team is not evidence that the user action was handled.)
+export const USER_ACTION_FRESH_MS = 24 * 3600 * 1000;
+// task kinds by directive number: production (TC-VIS-…, TC-00-…, TC-01S-…), control-room work
+// (TC-DASH-…, TC-HANDOFF-…) and anything else (e.g. ③'s own Work task ids)
+export function taskKind(id) {
+  const s = String(id || '');
+  if (/^TC-(?:DASH|HANDOFF)-/.test(s)) return 'control';
+  if (/^TC-(?:VIS|\d[0-9A-Z]*)-\d/.test(s)) return 'production';
+  return 'other';
+}
 export const PRODUCTION_TEAMS = ['TC-PROD', 'TC-QA', 'TC-WORK'];
 export const TEAM_INFO = {
   'TC-PROD': { label: '① TC-PROD 통합 제작팀', duty: 'Houdini 3D · 물리 · 제작 코드', outside: false },
@@ -113,13 +125,25 @@ export function buildBoard({ cards = [], decisions: rawDecisions = [], originals
   const candStatus = new Map();
   for (const d of decisions.filter(x => x.kind === 'candidate_status')) candStatus.set(d.candidate.name, d);
 
-  // current task: newest production card (the dashboard's own work is never the project's current task)
-  const cur = latest(prodCards);
-  const curOutside = cur ? TEAM_INFO[cur.team].outside : false;
-  const current = cur ? {
-    task_id: cur.task_id, team: cur.team, team_label: TEAM_INFO[cur.team].label,
-    now: nowState(cur, now, curOutside), last: lastState(cur), steps: steps(cur.task_id, cards, decisions),
-  } : { task_id: null, now: nowState(null, now), last: null, steps: [] };
+  // tasks: newest card of each task (any team) decides whether it is still open
+  const closedByDecision = new Set(decisions.filter(d => d.kind === 'closure' && VALID(d) && d.task_id).map(d => d.task_id));
+  const taskHead = new Map();
+  for (const c of cards) taskHead.set(c.task_id, c); // cards are sorted by time → last wins
+  const isOpen = id => { const h = taskHead.get(id); return !!h && h.state !== 'done' && !closedByDecision.has(id); };
+  const openOf = kind => [...taskHead.values()].filter(c => taskKind(c.task_id) === kind && isOpen(c.task_id)).sort((a, b) => b.at.localeCompare(a.at));
+
+  // current task (TC-DASH-007): the most recently active OPEN production task. Control-room work and
+  // finished tasks never take this place; with no open production task the slot stays unverified.
+  const view = (c, kind) => {
+    const latestProd = latest(cards.filter(x => x.task_id === c.task_id && PRODUCTION_TEAMS.includes(x.team))) || c;
+    return { task_id: c.task_id, kind, team: latestProd.team, team_label: TEAM_INFO[latestProd.team].label,
+      now: nowState(latestProd, now, TEAM_INFO[latestProd.team].outside), last: lastState(latestProd), steps: steps(c.task_id, cards, decisions) };
+  };
+  const openProd = openOf('production');
+  const current = openProd.length ? { ...view(openProd[0], 'production'), open_count: openProd.length, also_open: openProd.slice(1, 6).map(c => ({ task_id: c.task_id, state: c.state, at: c.at })) }
+    : { task_id: null, kind: 'production', open_count: 0, now: { ...nowState(null, now), basis: '열린 제작 작업 기록 없음 — 추정하지 않음' }, last: null, steps: [] };
+  const openCtl = openOf('control');
+  const control = { open: openCtl.slice(0, 5).map(c => ({ task_id: c.task_id, title: c.title, team: c.team, state: c.state, to_label: WHO[c.to] || null, ...cardEvidence(c) })) };
 
   // execution: there is no PC link, so the current execution is always unverified
   const runs = (nas?.folders || []).filter(f => f.clue === 'run_preserved');
@@ -130,8 +154,9 @@ export function buildBoard({ cards = [], decisions: rawDecisions = [], originals
     last_run: run ? { name: run.name, run_lock: run.run_lock, ...(runCited ? { ...cardEvidence(runCited), at: run.mtime, source: `${cardEvidence(runCited).source} (폴더 시각)` } : ev('clue', `NAS 폴더 이름 '${run.clue_label}' · RUN.lock ${run.run_lock ? '있음' : '없음'}`, run.mtime)) } : null,
   };
 
-  const done = latest(prodCards.filter(c => c.state === 'done'));
-  const closure = latest(decisions.filter(d => d.kind === 'closure' && VALID(d)));
+  // last completed: a production task whose newest card is done (past record, not the current task)
+  const done = latest([...taskHead.values()].filter(c => taskKind(c.task_id) === 'production' && c.state === 'done'));
+  const closure = latest(decisions.filter(d => d.kind === 'closure' && VALID(d) && taskKind(d.task_id) === 'production'));
   const last_done = closure && (!done || closure.at > done.at)
     ? { task_id: closure.task_id, title: closure.subject, kind: 'closure', ...decisionEvidence(closure) }
     : done ? { task_id: done.task_id, title: done.title, team: done.team, verdict: done.verdict, verdict_scope: done.verdict_scope, ...cardEvidence(done) } : null;
@@ -141,18 +166,33 @@ export function buildBoard({ cards = [], decisions: rawDecisions = [], originals
   for (const c of cards) heads.set(`${c.team}\0${c.task_id}`, c);
   const headList = [...heads.values()];
 
-  // pending actions: a card handed to someone who has not answered on that task since
+  // pending actions: a card handed to a team or the director who has not answered on that task since.
+  // User actions (TC-DASH-007): needed now only when on a team's newest card (heads) of an open task and
+  // < 24 h old; the rest are past records whose handling is unknown. Same task + same text is listed once.
   const actions = [];
-  for (const c of headList) {
-    if (c.to && ['handed_off', 'blocked'].includes(c.state)) {
+  const actions_past = [];
+  const seenUser = new Set();
+  for (const c of [...headList].sort((a, b) => b.at.localeCompare(a.at))) {
+    const kind = taskKind(c.task_id);
+    if (c.to && c.to !== 'user' && ['handed_off', 'blocked'].includes(c.state) && isOpen(c.task_id)) {
       const answered = c.to === 'director'
         ? decisions.some(d => d.task_id === c.task_id && ['approval', 'rejection', 'hold', 'closure'].includes(d.kind) && VALID(d) && d.at >= c.at)
         : cards.some(x => x.team === c.to && x.task_id === c.task_id && x.at >= c.at);
-      if (!answered) actions.push({ who: c.to, who_label: WHO[c.to], what: c.next || c.title, task_id: c.task_id, since: c.at, from: c.team, ...cardEvidence(c) });
+      if (!answered) actions.push({ who: c.to, who_label: WHO[c.to], what: c.next || c.title, task_id: c.task_id, kind, since: c.at, from: c.team, ...cardEvidence(c) });
     }
-    if (c.user_action) actions.push({ who: 'user', who_label: WHO.user, what: c.user_action, task_id: c.task_id, since: c.at, from: c.team, ...cardEvidence(c) });
+    const userText = c.user_action || (c.to === 'user' ? (c.next || c.title) : null);
+    if (userText) {
+      const key = `${c.task_id}\0${userText}`;
+      if (seenUser.has(key)) continue;
+      seenUser.add(key);
+      const age = now - Date.parse(c.at);
+      const why = !isOpen(c.task_id) ? '작업이 끝난 뒤 남은 기록 — 처리 여부 미확인' : age > USER_ACTION_FRESH_MS ? '24시간 넘게 지난 기록 — 처리 여부 미확인' : null;
+      const a = { who: 'user', who_label: WHO.user, what: userText, task_id: c.task_id, kind, since: c.at, from: c.team, ...cardEvidence(c) };
+      if (why) actions_past.push({ ...a, past_reason: why }); else actions.push(a);
+    }
   }
   actions.sort((a, b) => b.since.localeCompare(a.since));
+  actions_past.sort((a, b) => b.since.localeCompare(a.since));
 
   // issues, split by scope — candidate failures stay with the candidate
   const issues = { project: [], candidate: [], track: [] };
@@ -167,9 +207,11 @@ export function buildBoard({ cards = [], decisions: rawDecisions = [], originals
   // history: one row per task id, newest first
   const ids = [...new Set([...cards.map(c => c.task_id), ...decisions.map(d => d.task_id).filter(Boolean)])];
   const lastAt = id => [...byTask(cards, id), ...byTask(decisions, id)].reduce((m, x) => (x.at > m ? x.at : m), '');
-  const history = ids.filter(id => !id.startsWith('TC-DASH')).sort((a, b) => lastAt(b).localeCompare(lastAt(a))).slice(0, 30).map(id => ({
-    task_id: id, title: latest(byTask(cards, id))?.title || latest(byTask(decisions, id))?.subject || '', last_at: lastAt(id), steps: steps(id, cards, decisions),
-  }));
+  const row = id => ({ task_id: id, kind: taskKind(id), open: isOpen(id), title: latest(byTask(cards, id))?.title || latest(byTask(decisions, id))?.subject || '', last_at: lastAt(id), steps: steps(id, cards, decisions) });
+  const sorted = ids.sort((a, b) => lastAt(b).localeCompare(lastAt(a)));
+  const history = sorted.filter(id => taskKind(id) === 'production').slice(0, 30).map(row);
+  const history_control = sorted.filter(id => taskKind(id) === 'control').slice(0, 15).map(row);
+  const history_other = sorted.filter(id => taskKind(id) === 'other').slice(0, 15).map(row);
 
   // teams
   const live = new Map((teamLive?.teams || []).map(t => [t.team_id, t]));
@@ -213,5 +255,5 @@ export function buildBoard({ cards = [], decisions: rawDecisions = [], originals
 
   const decision_counts = { valid: decisions.filter(VALID).length, not_valid: decisions.filter(d => !VALID(d)).length };
 
-  return { decision_counts, now: new Date(now).toISOString(), live_window_min: LIVE_WINDOW_MS / 60000, baseline, current, execution, last_done, actions, issues, history, teams, candidates, latest_media };
+  return { decision_counts, now: new Date(now).toISOString(), live_window_min: LIVE_WINDOW_MS / 60000, baseline, current, control, execution, last_done, actions, actions_past, issues, history, history_control, history_other, teams, candidates, latest_media };
 }

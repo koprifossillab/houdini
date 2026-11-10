@@ -114,7 +114,10 @@ test('director decisions: valid only with a matched original AND a user confirma
   for (const [orig, pending] of [[null, true], [o('matched', 'transcribed'), true], [o('matched', 'user_confirmed'), false]]) {
     const b = buildBoard({ cards: [toDirector], decisions: [d, closure], originals: orig, now: NOW });
     assert.equal(b.actions.some(a => a.who === 'director'), pending, `pending=${pending}`);
-    const step = b.current.steps.find(s => s.key === 'director');
+    // TC-DASH-007: a validly closed task is no longer the current task; its steps stay in the history
+    const row = pending ? b.current : b.history.find(r => r.task_id === 'TC-VIS-030');
+    if (!pending) assert.equal(b.current.task_id, null, 'a closed task never stays current');
+    const step = row.steps.find(s => s.key === 'director');
     assert.equal(step.kind === 'decision', !pending);
     assert.equal(!!b.last_done && b.last_done.kind === 'closure', !pending, 'only a valid closure closes a task');
   }
