@@ -114,3 +114,5 @@ pre.card{white-space:pre-wrap;font-size:12px}
 .lv-unk{color:var(--unv);background:var(--unvbg);border-style:dashed}
 .warnline{color:var(--rev)}
 table.feed td{vertical-align:top}
+.g5{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+@media (max-width:980px){.g5{grid-template-columns:repeat(2,minmax(0,1fr))}}

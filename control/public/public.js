@@ -13,7 +13,7 @@ function h(tag, attrs, ...kids) {
   return n;
 }
 const TONE = { producing: 'ok', verifying: 'ok', done: 'ok', waiting_result: 'info', waiting_user: 'wait', unverified: 'unk',
-  confirmed: 'ok', unconfirmed: 'unk', not_connected: 'unk', not_collected: 'unk', in_progress: 'ok', waiting: 'info', open: 'unk' };
+  confirmed: 'ok', unconfirmed: 'unk', not_connected: 'unk', not_collected: 'unk', in_progress: 'ok', waiting: 'info', open: 'unk', fresh: 'ok', partial: 'wait', missing: 'bad' };
 const badge = p => h('span', { class: `b lv lv-${TONE[p.key] || 'unk'}`, text: p.label });
 const gradeTag = p => h('span', { class: `g g-${{ confirmed: 'confirmed', reported: 'claim', estimated: 'clue' }[p.key] || 'none'}`, text: p.label });
 
@@ -53,10 +53,10 @@ function render() {
         h('div', { class: 'stack split' }, h('span', { class: 'lbl', text: '실행' }), h('span', {}, badge(t.execution))))))),
     h('section', { class: 'card' },
       h('div', { class: 'stack' }, h('span', { class: 'lbl', text: '프로젝트 · 진행 단계' }), h('h1', { text: board.project.label })),
-      h('div', { class: 'steps' }, board.project.stage.map(s => h('div', { class: 'step' }, h('span', { class: 'lbl', text: s.label }), h('span', {}, badge(s.state)), gradeTag(s.grade)))),
+      h('div', { class: 'steps' }, board.project.stage.map(s => h('div', { class: 'step' }, h('span', { class: 'lbl', text: s.label }), h('span', {}, badge(s.state)), h('span', {}, gradeTag(s.grade))))),
       h('span', { class: 'ev', text: `열린 제작 작업 ${board.project.open_tasks}건 · 진행 단계는 가장 최근 제작 작업 기준` })),
     h('section', { class: 'card' }, h('h2', { text: '대기 중인 행동 (건수만)' }),
-      h('div', { class: 'g4' }, board.pending.map(p => h('div', { class: 'step' }, h('span', { class: 'lbl', text: p.label }), h('span', { class: 'n', text: String(p.count) }))))),
+      h('div', { class: 'g5' }, board.pending.map(p => h('div', { class: 'step' }, h('span', { class: 'lbl', text: p.label }), h('span', { class: 'n', text: String(p.count) }))))),
     h('section', { class: 'legend' }, h('span', { class: 'lbl', text: '근거 등급' }),
       h('span', {}, gradeTag({ key: 'confirmed', label: '확인' }), ' 근거가 붙은 기록·서명 기록·실행 기록'),
       h('span', {}, gradeTag({ key: 'reported', label: '보고' }), ' 팀이 적었으나 근거 없음'),
