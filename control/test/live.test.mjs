@@ -86,7 +86,8 @@ test('L5 a placed BAT alone is never running; PC records keep only allow-listed 
   }));
   pc = await readPcRuns(dir, Date.now());
   assert.equal(pc.placed.length, 0, 'a result started after the BAT was placed answers it');
-  assert.deepEqual(Object.keys(pc.results[0]).sort(), ['all_ok', 'finished', 'images_ok', 'job', 'render_sec', 'started', 'state']);
+  assert.deepEqual(Object.keys(pc.results[0]).sort(), ['all_ok', 'finished', 'images_ok', 'job', 'render_sec', 'started', 'state', 'written_at'], 'written_at is internal (snapshot cut) only');
+  assert.deepEqual(Object.keys(pcLine(pc, Date.now()).last).sort(), ['all_ok', 'finished', 'images_ok', 'job', 'render_sec', 'started', 'state']);
   assert.equal(pc.results[0].started, '2098-12-31T15:00:00.000Z');
   assert.equal(parseResult({ job: 'x', started: '2026-11-10 10:00:00' }, 'launch_x_20261110_100000.json'), null, 'old formats without a state are not counted');
   const s = JSON.stringify(buildLive({ cards: [], pc, now: Date.now(), detail: true }));

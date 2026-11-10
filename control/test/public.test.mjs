@@ -148,3 +148,23 @@ test('P8 the first request in a slot still leaves out records written after the 
   assert.equal(j.teams[0].status.key, 'unverified');
   assert.equal(j.teams[1].status.key, 'unverified');
 });
+
+test('P9 (QA REVIEW 3441d65) public snapshots use only inputs that can be cut at the mark — no session collector, no NAS clue', async t => {
+  const w = await world(t);
+  const tl = await tmp(t);
+  const doc = s => ({ schema: 'tc-team-live/1', generated_at: new Date().toISOString(), teams: ['TC-PROD', 'TC-QA', 'TC-WORK'].map(id => ({ team_id: id, execution: { state: s, process_alive: true, activity_recent: s === 'RUNNING' } })) });
+  await fs.writeFile(path.join(tl, 'team_live.json'), JSON.stringify(doc('RUNNING')));
+  const SLOT = 15 * 60 * 1000;
+  const T = (Math.floor(Date.now() / SLOT) + 1) * SLOT + 1000;
+  const a = await serve(t, { ...w, teamLiveDir: tl, publicOnly: undefined, now: () => T });
+  const one = await (await fetch(`${a}/Houdini/api/live`)).text();
+  // the collector changes and the service restarts inside the same slot: the public body is byte-identical
+  await fs.writeFile(path.join(tl, 'team_live.json'), JSON.stringify(doc('IDLE')));
+  const b = await serve(t, { ...w, teamLiveDir: tl, publicOnly: undefined, now: () => T + 60000 });
+  const two = await (await fetch(`${b}/Houdini/api/live`)).text();
+  assert.equal(two, one);
+  assert.ok(JSON.parse(one).teams.every(x => x.execution.key !== 'confirmed'), 'session activity is not used publicly');
+  const bb1 = await (await fetch(`${a}/Houdini/api/board`)).text();
+  const bb2 = await (await fetch(`${b}/Houdini/api/board`)).text();
+  assert.equal(bb1, bb2);
+});

@@ -128,10 +128,10 @@ export function sessionLine(team, tl) {
 
 export function pcLine(pc, now) {
   if (!pc || pc.state !== 'ok') return { key: 'unknown', label: 'PC 실행 기록 확인 불가', last: null, placed: 0 };
-  const last = pc.results.at(-1) || null;
+  const last = pc.results.at(-1) ? (({ written_at, ...r }) => r)(pc.results.at(-1)) : null;
   const running = pc.results.filter(r => r.state === 'running' && now - Date.parse(r.started) < PC_RUNNING_MS).at(-1);
   const base = { last, placed: pc.placed.length, placed_note: '실행 파일 배치는 실행 증거가 아님' };
-  if (running) return { ...base, key: 'pc_run_recorded', label: 'PC 실행 시작 기록 있음 (종료 기록 전)', running };
+  if (running) return { ...base, key: 'pc_run_recorded', label: 'PC 실행 시작 기록 있음 (종료 기록 전)', running: (({ written_at, ...r }) => r)(running) };
   if (!last) return { ...base, key: 'pc_none', label: 'PC 실행 결과 기록 없음' };
   return { ...base, key: last.state === 'finished' && last.all_ok !== false ? 'pc_last_ok' : 'pc_last_fail', label: `마지막 PC 실행 ${last.state === 'finished' && last.all_ok !== false ? '종료 · 성공' : '실패'} 확인` };
 }
@@ -149,7 +149,7 @@ export function buildLive({ cards = [], signed = [], corrections = [], teamLive 
     cards = cards.filter(c => firstSeen(c) <= asOf);
     signed = signed.filter(c => Date.parse(c.at) <= asOf);
     corrections = corrections.filter(c => Date.parse(c.at) <= asOf);
-    pc = pc && { ...pc, results: pc.results.filter(r => Date.parse(r.finished || r.started) <= asOf), placed: pc.placed.filter(x => Date.parse(x.placed_at) <= asOf) };
+    pc = pc && { ...pc, results: pc.results.filter(r => Date.parse(r.written_at || r.finished || r.started) <= asOf && Date.parse(r.finished || r.started) <= asOf), placed: pc.placed.filter(x => Date.parse(x.placed_at) <= asOf) };
     now = asOf;
   }
   const ordered = orderCards([...cards, ...signed.map(s => ({ ...s, written_at: null }))], corrections, now);

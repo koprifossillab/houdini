@@ -166,7 +166,7 @@ export function createApp(cfg = configFromEnv()) {
       readCards(cfg.demo ? null : cfg.handoffDir, { writtenAt: true }),
       readSignedWork(cfg.demo ? null : cfg.workActivityDir, path.join(ROOT, 'data', 'work-public.pem')),
       readCorrections(cfg.demo ? null : cfg.handoffDir),
-      cfg.demo ? Promise.resolve(null) : teamLiveView(cfg.teamLiveDir, now),
+      cfg.demo || asOf !== null ? Promise.resolve(null) : teamLiveView(cfg.teamLiveDir, now), // snapshots: no collector (no history)
     ]);
     const live = buildLive({ cards: cards.items, signed: signed.items, corrections: corr.items, teamLive: tl, pc: pcCache.value, now, detail: liveDetail, asOf });
     const checked_at = new Date(now).toISOString();
@@ -259,7 +259,8 @@ export function createApp(cfg = configFromEnv()) {
   async function boardInternal(asOf = null) {
     const [cards, decisions, nas, tl, signed, originals] = await Promise.all([
       readCards(cfg.demo ? null : cfg.handoffDir, { writtenAt: asOf !== null }), readDecisions(cfg.demo ? null : cfg.decisionsDir),
-      nasClues(cfg.demo ? null : cfg.nas), cfg.demo ? Promise.resolve(null) : teamLiveView(cfg.teamLiveDir),
+      // snapshots: NAS clues and the session collector are not read (not cut-able at a mark, not published)
+      nasClues(cfg.demo || asOf !== null ? null : cfg.nas), cfg.demo || asOf !== null ? Promise.resolve(null) : teamLiveView(cfg.teamLiveDir),
       readSignedWork(cfg.demo ? null : cfg.workActivityDir, path.join(ROOT, 'data', 'work-public.pem')),
       directorOriginals(cfg.demo ? null : cfg.directorDir),
     ]);

@@ -38,7 +38,10 @@ export const gradeOf = g => (['confirmed', 'signed', 'valid_decision'].includes(
 const execOf = (team, sessionKey, pcKey) => {
   if (team === 'TC-WORK') return 'not_connected';
   if (team === 'TC-DASH') return 'not_collected';
-  return sessionKey === 'session_active' || pcKey === 'pc_run_recorded' ? 'confirmed' : 'unconfirmed';
+  // ② QA REVIEW (3441d65): the session collector keeps no history, so it cannot be cut at a snapshot mark.
+  // The public execution state therefore uses only records that can: a PC run record started before the mark.
+  void sessionKey;
+  return pcKey === 'pc_run_recorded' ? 'confirmed' : 'unconfirmed';
 };
 const pair = (map, key) => ({ key, label: map[key] });
 
@@ -54,7 +57,7 @@ export function publicTeams(live) {
 
 export function freshnessOf(sources) {
   if (!sources || sources.handoff?.state !== 'ok') return 'missing';
-  return sources.team_live?.state === 'live' && sources.pc_runs?.state === 'ok' ? 'fresh' : 'partial';
+  return sources.pc_runs?.state === 'ok' ? 'fresh' : 'partial'; // record folders readable (no collector state: it cannot be cut at a mark)
 }
 
 export function publicLive(live, sources) {

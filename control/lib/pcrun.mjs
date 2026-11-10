@@ -54,7 +54,10 @@ export async function readPcRuns(launchDir, now = Date.now()) {
     let doc;
     try { doc = await readJson(path.join(launchDir, 'results', e.name), 256 * 1024); } catch { continue; }
     const r = parseResult(doc, e.name);
-    if (r) results.push(r);
+    if (!r) continue;
+    // write time of the record file — used only to cut public snapshots at their mark, never published
+    try { r.written_at = new Date((await fs.lstat(path.join(launchDir, 'results', e.name))).mtimeMs).toISOString(); } catch { r.written_at = null; }
+    results.push(r);
   }
   results.sort((a, b) => (a.finished || a.started).localeCompare(b.finished || b.started));
   // placed launchers: a .bat newer than every result of the same job, placed within 24 h.
