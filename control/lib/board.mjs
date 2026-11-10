@@ -129,8 +129,18 @@ export function buildBoard({ cards = [], decisions: rawDecisions = [], originals
   const closedByDecision = new Set(decisions.filter(d => d.kind === 'closure' && VALID(d) && d.task_id).map(d => d.task_id));
   const taskHead = new Map();
   for (const c of cards) taskHead.set(c.task_id, c); // cards are sorted by time → last wins
-  const isOpen = id => { const h = taskHead.get(id); return !!h && h.state !== 'done' && !closedByDecision.has(id); };
-  const openOf = kind => [...taskHead.values()].filter(c => taskKind(c.task_id) === kind && isOpen(c.task_id)).sort((a, b) => b.at.localeCompare(a.at));
+  // ② QA R2 (TC-DASH-007): a task counts as finished only on a valid closure record, or when its newest card
+  // is a done card that is self-submitted with evidence or signed. A done card that is transcribed or has no
+  // evidence leaves the task as "완료 미확인" — not closed, not current, never shown as completed.
+  const taskStatus = id => {
+    const h = taskHead.get(id);
+    if (!h) return 'none';
+    if (closedByDecision.has(id)) return 'closed';
+    if (h.state !== 'done') return 'open';
+    return LIVE_GRADES.includes(h.grade) ? 'closed' : 'done_unverified';
+  };
+  const isOpen = id => taskStatus(id) !== 'closed' && taskStatus(id) !== 'none';
+  const openOf = kind => [...taskHead.values()].filter(c => taskKind(c.task_id) === kind && taskStatus(c.task_id) === 'open').sort((a, b) => b.at.localeCompare(a.at));
 
   // current task (TC-DASH-007): the most recently active OPEN production task. Control-room work and
   // finished tasks never take this place; with no open production task the slot stays unverified.
@@ -142,7 +152,7 @@ export function buildBoard({ cards = [], decisions: rawDecisions = [], originals
   const openProd = openOf('production');
   const current = openProd.length ? { ...view(openProd[0], 'production'), open_count: openProd.length, also_open: openProd.slice(1, 6).map(c => ({ task_id: c.task_id, state: c.state, at: c.at })) }
     : { task_id: null, kind: 'production', open_count: 0, now: { ...nowState(null, now), basis: '열린 제작 작업 기록 없음 — 추정하지 않음' }, last: null, steps: [] };
-  const openCtl = openOf('control');
+  const openCtl = [...taskHead.values()].filter(c => taskKind(c.task_id) === 'control' && isOpen(c.task_id)).sort((a, b) => b.at.localeCompare(a.at));
   const control = { open: openCtl.slice(0, 5).map(c => ({ task_id: c.task_id, title: c.title, team: c.team, state: c.state, to_label: WHO[c.to] || null, ...cardEvidence(c) })) };
 
   // execution: there is no PC link, so the current execution is always unverified
@@ -155,7 +165,9 @@ export function buildBoard({ cards = [], decisions: rawDecisions = [], originals
   };
 
   // last completed: a production task whose newest card is done (past record, not the current task)
-  const done = latest([...taskHead.values()].filter(c => taskKind(c.task_id) === 'production' && c.state === 'done'));
+  const done = latest([...taskHead.values()].filter(c => taskKind(c.task_id) === 'production' && c.state === 'done' && taskStatus(c.task_id) === 'closed' && !closedByDecision.has(c.task_id)));
+  const doneUnverified = [...taskHead.values()].filter(c => taskKind(c.task_id) === 'production' && taskStatus(c.task_id) === 'done_unverified').sort((a, b) => b.at.localeCompare(a.at))
+    .map(c => ({ task_id: c.task_id, title: c.title, team: c.team, reason: c.grade === 'transcribed' ? '완료 카드가 전사 기록뿐' : '완료 카드에 근거 없음', ...cardEvidence(c) }));
   const closure = latest(decisions.filter(d => d.kind === 'closure' && VALID(d) && taskKind(d.task_id) === 'production'));
   const last_done = closure && (!done || closure.at > done.at)
     ? { task_id: closure.task_id, title: closure.subject, kind: 'closure', ...decisionEvidence(closure) }
@@ -218,7 +230,7 @@ export function buildBoard({ cards = [], decisions: rawDecisions = [], originals
   // history: one row per task id, newest first
   const ids = [...new Set([...cards.map(c => c.task_id), ...decisions.map(d => d.task_id).filter(Boolean)])];
   const lastAt = id => [...byTask(cards, id), ...byTask(decisions, id)].reduce((m, x) => (x.at > m ? x.at : m), '');
-  const row = id => ({ task_id: id, kind: taskKind(id), open: isOpen(id), title: latest(byTask(cards, id))?.title || latest(byTask(decisions, id))?.subject || '', last_at: lastAt(id), steps: steps(id, cards, decisions) });
+  const row = id => ({ task_id: id, kind: taskKind(id), open: isOpen(id), status: taskStatus(id), title: latest(byTask(cards, id))?.title || latest(byTask(decisions, id))?.subject || '', last_at: lastAt(id), steps: steps(id, cards, decisions) });
   const sorted = ids.sort((a, b) => lastAt(b).localeCompare(lastAt(a)));
   const history = sorted.filter(id => taskKind(id) === 'production').slice(0, 30).map(row);
   const history_control = sorted.filter(id => taskKind(id) === 'control').slice(0, 15).map(row);
@@ -266,5 +278,5 @@ export function buildBoard({ cards = [], decisions: rawDecisions = [], originals
 
   const decision_counts = { valid: decisions.filter(VALID).length, not_valid: decisions.filter(d => !VALID(d)).length };
 
-  return { decision_counts, now: new Date(now).toISOString(), live_window_min: LIVE_WINDOW_MS / 60000, baseline, current, control, execution, last_done, actions, actions_past, issues, history, history_control, history_other, teams, candidates, latest_media };
+  return { decision_counts, now: new Date(now).toISOString(), live_window_min: LIVE_WINDOW_MS / 60000, baseline, current, control, execution, last_done, done_unverified: doneUnverified, actions, actions_past, issues, history, history_control, history_other, teams, candidates, latest_media };
 }

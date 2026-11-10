@@ -87,3 +87,59 @@ test('R4: a user action a team dropped from its newer card is kept as a past rec
   const js = await (await import('node:fs/promises')).readFile(new URL('../public/board.js', import.meta.url), 'utf8');
   assert.match(js, /const acts = b\.actions\.filter\(a => a\.kind === 'production'\)/, 'home counts production only');
 });
+
+// TC-DASH-007 supplementary (감독): R2 · R1 · R4 each tested on its own
+test('R2: a transcribed or evidence-less done card does not finish a task — "완료 미확인", never closed by guess', () => {
+  const now = T('2026-11-10T10:00:00+09:00');
+  const open = card('TC-PROD', 'TC-VIS-050', '2026-11-10T08:00:00+09:00', { state: 'in_progress' });
+  const trDone = parseCard({ schema: 'tc-handoff/1', team: 'TC-WORK', task_id: 'TC-VIS-051', title: '전사 완료', state: 'done', at: '2026-11-10T09:00:00+09:00',
+    author: { method: 'transcribed', transcribed_by: 'TC-DASH', transcribed_from: { ref: '③ 보고', at: '2026-11-10T08:55:00+09:00' } }, evidence: [{ kind: 'report', ref: '③ 보고' }] }, 'TC-WORK', 'w.json');
+  const claimDone = parseCard({ schema: 'tc-handoff/1', team: 'TC-PROD', task_id: 'TC-VIS-052', title: '근거 없는 완료', state: 'done', at: '2026-11-10T09:10:00+09:00' }, 'TC-PROD', 'p.json');
+  const okDone = card('TC-QA', 'TC-VIS-053', '2026-11-10T09:20:00+09:00', { state: 'done', verdict: 'PASS', verdict_scope: 'technical' });
+  const b = buildBoard({ cards: [open, trDone, claimDone, okDone], now });
+  assert.equal(trDone.grade, 'transcribed');
+  assert.equal(claimDone.grade, 'claim');
+  assert.equal(b.last_done.task_id, 'TC-VIS-053', 'only the evidenced done card counts as completed');
+  assert.deepEqual(b.done_unverified.map(x => x.task_id).sort(), ['TC-VIS-051', 'TC-VIS-052']);
+  const st = Object.fromEntries(b.history.map(r => [r.task_id, r.status]));
+  assert.equal(st['TC-VIS-051'], 'done_unverified');
+  assert.equal(st['TC-VIS-052'], 'done_unverified');
+  assert.equal(st['TC-VIS-053'], 'closed');
+  assert.equal(st['TC-VIS-050'], 'open');
+  assert.equal(b.current.task_id, 'TC-VIS-050', 'an unverified completion is not the current task either');
+  // with only unverified completions nothing is closed and nothing is guessed
+  const only = buildBoard({ cards: [trDone], now });
+  assert.equal(only.last_done, null);
+  assert.equal(only.current.task_id, null);
+  assert.equal(only.current.now.state, 'unverified');
+  // a pending action on an unverified-done task is not silently dropped
+  const asked = card('TC-PROD', 'TC-VIS-052', '2026-11-10T08:30:00+09:00', { to: 'director', next: '판정 요청' });
+  const b2 = buildBoard({ cards: [asked, claimDone], now });
+  assert.ok(b2.done_unverified.some(x => x.task_id === 'TC-VIS-052'));
+});
+
+test('R1: waits on other-kind work are not counted as production', () => {
+  const now = T('2026-11-10T10:00:00+09:00');
+  const prod = card('TC-PROD', 'TC-VIS-060', '2026-11-10T09:00:00+09:00', { to: 'director', next: '제작 판정' });
+  const other = card('TC-PROD', 'TC-WORK-001', '2026-11-10T09:10:00+09:00', { to: 'director', next: '기타 판정' });
+  const ctl = card('TC-QA', 'TC-DASH-009', '2026-11-10T09:20:00+09:00', { to: 'TC-DASH', next: '관제실' });
+  assert.equal(taskKind('TC-WORK-001'), 'other');
+  const b = buildBoard({ cards: [prod, other, ctl], now });
+  const by = k => b.actions.filter(a => a.kind === k).map(a => a.task_id);
+  assert.deepEqual(by('production'), ['TC-VIS-060']);
+  assert.deepEqual(by('other'), ['TC-WORK-001']);
+  assert.deepEqual(by('control'), ['TC-DASH-009']);
+  assert.ok(!b.history.some(r => r.task_id === 'TC-WORK-001'), 'other work stays out of the production history');
+  assert.deepEqual(b.history_other.map(r => r.task_id), ['TC-WORK-001']);
+});
+
+test('R4: user actions superseded by a newer card stay in the past records, newest first, once', () => {
+  const now = T('2026-11-10T10:00:00+09:00');
+  const a1 = card('TC-PROD', 'TC-VIS-070', '2026-11-10T08:00:00+09:00', { user_action: 'PC 실행 1' });
+  const a2 = card('TC-PROD', 'TC-VIS-070', '2026-11-10T08:30:00+09:00', { user_action: 'PC 실행 2' });
+  const a3 = card('TC-PROD', 'TC-VIS-070', '2026-11-10T09:00:00+09:00', { state: 'in_progress', user_action: 'PC 실행 2' });
+  const b = buildBoard({ cards: [a1, a2, a3], now });
+  assert.deepEqual(b.actions.filter(a => a.who === 'user').map(a => a.what), ['PC 실행 2'], 'the newest card\'s request is current, once');
+  assert.deepEqual(b.actions_past.map(a => a.what), ['PC 실행 1'], 'the superseded request is kept, not dropped');
+  assert.match(b.actions_past[0].past_reason, /뒤 카드에 없는/);
+});
