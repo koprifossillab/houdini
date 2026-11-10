@@ -13,7 +13,7 @@ async function hand(t) {
   return d;
 }
 // the test server listens on loopback; with trustedProxies = loopback the test client stands in for nginx
-const open = async (t, extra = {}) => serve(t, { handoffDir: await hand(t), publicOnly: undefined, trustedProxies: ['127.0.0.1', '::ffff:127.0.0.1'], ...extra });
+const open = async (t, extra = {}) => serve(t, { handoffDir: await hand(t), publicOnly: true, trustedProxies: ['127.0.0.1', '::ffff:127.0.0.1'], ...extra });
 const view = async (base, headers = {}) => {
   const s = await (await fetch(`${base}/Houdini/api/session`, { headers })).json();
   const live = await (await fetch(`${base}/Houdini/api/live`, { headers })).json();
@@ -83,4 +83,15 @@ test('V8 /api/session local_detail is true only when the detail view opened beca
   assert.equal((await (await fetch(`${base}/Houdini/api/session`, { headers: { 'X-Real-IP': '203.0.113.9' } })).json()).local_detail, undefined);
   const authed = await serve(t, { handoffDir: await hand(t), publicOnly: false });
   assert.equal((await (await fetch(`${authed}/Houdini/api/session`)).json()).local_detail, false, 'an authenticated/detailed service is not a local-only view');
+});
+
+test('V9 (0.3.2) without authentication every viewer gets the detailed views by default; HPC_PUBLIC_ONLY=1 restores the public projection', async t => {
+  const base = await serve(t, { handoffDir: await hand(t) }); // configFromEnv default: publicOnly false
+  for (const h of [{}, { 'X-Real-IP': '203.0.113.9' }, { 'X-Real-IP': '172.16.113.40' }]) {
+    const v = await view(base, h);
+    assert.ok(v.detail, JSON.stringify(h)); assert.equal(v.legacy, 200); assert.equal(v.teams, 200);
+  }
+  const { configFromEnv } = await import('../server.mjs');
+  assert.equal(configFromEnv({}).publicOnly, false);
+  assert.equal(configFromEnv({ HPC_PUBLIC_ONLY: '1' }).publicOnly, true);
 });

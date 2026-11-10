@@ -83,6 +83,8 @@ export function configFromEnv(env = process.env) {
     allowOpen: env.HPC_ALLOW_OPEN === '1',
     // TC-DASH-009: detailed views for a viewer on this computer (default on; '0' = public view for everyone)
     localDetail: env.HPC_LOCAL_DETAIL !== '0',
+    // 0.3.2: public-only projection only when asked for (owner decision 2026-11-11)
+    publicOnly: env.HPC_PUBLIC_ONLY === '1',
     users: env.HPC_USERS || '',
     demo: env.HPC_DEMO === '1',
     demoState: ['live', 'stale', 'missing', 'error'].includes(env.HPC_DEMO_STATE) ? env.HPC_DEMO_STATE : 'live',
@@ -150,11 +152,10 @@ export function createApp(cfg = configFromEnv()) {
   }
 
   // TC-DASH-008 "지금": scanned at most every 10 s (PC records every 60 s) whatever the number of viewers.
-  // Detail (task names, times, feed) only when viewers are authenticated; an open service gets coarse states.
-  // Owner decision 2026-11-10: without authentication the whole service is public-only — every response is
-  // built by lib/public.mjs from fixed vocabularies. cfg.publicOnly=false exists for the unit tests of the
-  // detailed views only; configFromEnv never sets it.
-  const publicOnly = cfg.publicOnly ?? cfg.authMode === 'off';
+  // History: 0.3.0 (2026-11-10) made an unauthenticated service public-only (lib/public.mjs, fixed vocabularies).
+  // TC-DASH-009 0.3.2 (owner 2026-11-11, "0.2.2처럼 모두에게"): detailed views for every viewer again by default.
+  // The public-only projection stays available: HPC_PUBLIC_ONLY=1 (then only this computer gets the details).
+  const publicOnly = cfg.publicOnly ?? false;
   const localDetail = cfg.localDetail ?? true;
   // TC-DASH-009 (owner 2026-11-10): the detailed views open without authentication ONLY to a viewer on this
   // computer. Anyone else keeps the public view above. HPC_LOCAL_DETAIL=0 turns this off.
