@@ -51,7 +51,7 @@
 | `to` | 넘김·차단이면 **필수** | `TC-PROD` · `TC-QA` · `TC-WORK` · `TC-DASH` · `director` · `user` | 전달받을 팀 |
 | `done` | 권장 | 완료한 작업 | 완료한 작업 |
 | `next` | 권장 | 다음 작업 | 다음 작업 |
-| `user_action` | 선택 | 사용자가 직접 할 일, 없으면 `null` | 사용자 직접 조치 |
+| `user_action` | 선택 | 사용자가 직접 할 일, 없으면 `null` ("없음"·"-" 도 없음으로 읽음). 값이 있으면 관제실은 그 팀을 **사용자 대기**로 표시함 — `to` 보다 우선. "BAT 실행 금지" 같은 주의 안내도 사용자 대기로 보이므로, 사용자가 할 일이 없을 때의 안내는 `next` 에 쓰기 | 사용자 직접 조치 |
 | `verdict` | 판정이 있으면 | `PASS` · `FAIL` · `REVIEW` · `UNVERIFIED` — **상태가 아니다** | |
 | `verdict_scope` | verdict 와 함께 | `technical` · `visual` · `physics` · `selfcheck` · `run` | |
 | `candidate` | 후보 작업이면 | 후보 이름 — 후보의 FAIL 은 그 후보에만 붙고 기준본 표시는 바뀌지 않음 | |

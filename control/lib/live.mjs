@@ -93,7 +93,7 @@ export function deriveStatus(h, ordered) {
   if (h.state === 'handed_off') {
     if (!h.to) return { key: 'handed_off', label: '넘김' };
     if (TEAMS.includes(h.to)) {
-      const answered = ordered.some(c => c.team === h.to && c.task_id === h.task_id && c.order_at > h.order_at);
+      const answered = ordered.some(c => c.team === h.to && c.task_id === h.task_id && c.order_at > h.order_at && !c.flags?.includes('not_current'));
       if (answered) return { key: 'handed_answered', label: `넘김 — ${LABEL[h.to]} 응답 기록 있음` };
     }
     const [key, label] = WAIT[h.to];

@@ -215,3 +215,10 @@ test('L13 (QA REVIEW c) placeholder user_action words are read as no action', as
   const c = parseCard({ ...base, user_action: '없음' }, 'TC-PROD', 'a.json');
   assert.equal(buildLive({ cards: [{ ...c, file: 'a.json', written_at: null }], now: Date.parse('2026-11-10T05:10:00Z'), detail: true }).teams[0].report.key, 'wait_qa');
 });
+
+test('L14 a not_current (future) record does not count as an answer to a hand-off', () => {
+  const now = Date.now();
+  const hand = card({ file: 'h', state: 'handed_off', to: 'TC-WORK', task_id: 'TC-VIS-030', at: new Date(now - 10 * 60000).toISOString(), written_at: null });
+  const fut = card({ file: 'f', team: 'TC-WORK', task_id: 'TC-VIS-030', grade: 'signed', at: new Date(now + 3600e3).toISOString(), written_at: null });
+  assert.equal(buildLive({ cards: [hand], signed: [fut], now, detail: true }).teams[0].report.key, 'wait_work');
+});

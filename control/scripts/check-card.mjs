@@ -35,7 +35,7 @@ for (const file of process.argv.slice(2)) {
   if (c.author.signed_claim_ignored) notes.push('파일로는 signed 를 쓸 수 없음 — 직접 작성으로 읽음 (서명은 ③ Work 기록에서만)');
   if (c.state === 'in_progress') notes.push('진행 중 카드는 2시간 안에 새 근거로 다시 쓰지 않으면 화면에서 미확인으로 내려감');
   if (typeof doc?.user_action === 'string' && NO_ACTION.test(doc.user_action)) notes.push(`user_action '${doc.user_action}' 은 없음으로 읽음 — 사용자 할 일이 없으면 null 로 쓰기`);
-  if (c.user_action && c.to && c.to !== 'user') notes.push(`user_action 이 있어 "사용자 대기"로 표시됨 — 받는 쪽(${c.to})의 할 일이면 user_action 은 null`);
+  if (c.user_action && c.to && c.to !== 'user') notes.push(`참고: user_action 이 있어 "사용자 대기"로 표시됨 (to=${c.to} 보다 우선) — 사용자가 할 일이면 그대로, 주의 안내뿐이면 next 에`);
   if (['handed_off', 'blocked'].includes(c.state) && !c.to) notes.push('넘김·차단 카드에 to(받는 쪽)가 없음');
   const label = { confirmed: '직접 작성', claim: '근거 없는 카드', transcribed: '전사' }[c.grade] || c.grade;
   console.log(`✓ ${name}: ${c.team} ${c.task_id} ${c.state}${c.verdict ? ` · ${c.verdict}` : ''} — ${label}`);
