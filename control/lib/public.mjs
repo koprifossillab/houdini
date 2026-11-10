@@ -119,7 +119,9 @@ export function checkPublic(value, where = '$', out = []) {
 
 // text bodies (HTML / JS / CSS) and headers: patterns that must never appear in anything served publicly
 export const LEAK_PATTERNS = [
-  ['작업 번호', /\bTC-(?!PROD\b|QA\b|WORK\b|DASH\b)[0-9A-Z]{2,8}-\d{2,}/],
+  // any TC-… id with a numbered part (TC-VIS-029, TC-DASH-008, TC-QA-001, TC-WORK-TIME-DISPLAY-20261103 …);
+  // a bare team name (TC-PROD, TC-QA, TC-WORK, TC-DASH) has no numbered part and is not matched (② QA REVIEW 2)
+  ['작업 번호', /\bTC-[0-9A-Z]{2,12}(?:-[0-9A-Z]{1,16})*-\d{2,}/],
   ['ISO 시각', /\b20\d\d-\d\d-\d\dT\d\d:\d\d/],
   ['시:분', /(?<![\d.])(?:[01]?\d|2[0-3]):[0-5]\d(?![\d])/],
   ['내부 경로', /(?:\/(?:home|srv|nfs|mnt|tmp|volume\d|Users)\/|[A-Z]:\\|\\\\[\w.-]+\\)/],

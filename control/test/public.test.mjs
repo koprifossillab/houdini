@@ -73,6 +73,7 @@ test('P3 the checker catches private fields deliberately added to a public respo
   for (const f of inject) { const o = structuredClone(pub); f(o); assert.ok(checkPublic(o).length > 0, f.toString()); }
   for (const s of ['TC-VIS-029 시작', '14:37 작성', '2026-11-10T05:37', '/home/u/x', 'C:\\Users\\a', 'pid 5588', 'sha 4791f9f7b7d47adc', 'launch_x.bat', 'QA.md']) assert.ok(scanText(s).length > 0, s);
   assert.deepEqual(scanText('TC-PROD · TC-QA · TC-WORK · TC-DASH 20초마다'), []);
+  for (const id of ['TC-DASH-008', 'TC-PROD-20261104-0758', 'TC-QA-001', 'TC-WORK-TIME-DISPLAY-20261103', 'TC-VIS-029', 'TC-HANDOFF-002', '/* TC-DASH-003 board */']) assert.ok(scanText(id).includes('작업 번호'), id);
 });
 
 test('P4 public states: coarse words only, ③ not connected, stale → 미확인 without grade', () => {
