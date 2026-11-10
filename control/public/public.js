@@ -1,4 +1,4 @@
-// Houdini 제작 관제실 — public page (TC-DASH-008 운영 공개 정책). The server sends only fixed words and
+// Houdini 제작 관제실 — public page (운영 공개 정책). The server sends only fixed words and
 // small counts (server public projection); this page only lays them out. Text only through textContent.
 'use strict';
 (() => {

@@ -1,4 +1,4 @@
-/* TC-DASH-003 board — system fonts only (CSP font-src 'self'); no inline styles anywhere (CSP style-src 'self'). */
+/* board — system fonts only (CSP font-src 'self'); no inline styles anywhere (CSP style-src 'self'). */
 :root{--bg:#F4F5F7;--card:#FFFFFF;--ink:#15181E;--ink2:#3F4652;--mute:#525968;--line:#DDE1E6;--line2:#EEF0F3;--acc:#174A99;--accbg:#DCE7F8;
 --pass:#14603A;--passbg:#DDF0E4;--fail:#9E1F17;--failbg:#FADBD8;--rev:#6E4700;--revbg:#FCEBC4;--uv:#4B2C83;--uvbg:#ECE6F7;--unv:#3F4652;--unvbg:#ECEEF1;--unvln:#8C93A0;--dark:#15181E;--darkfg:#FFFFFF;--nav:#15181E;--navfg:#E6E8EC}
 @media (prefers-color-scheme:dark){:root{--bg:#111318;--card:#1A1D24;--ink:#ECEEF2;--ink2:#C3C8D1;--mute:#A3A9B4;--line:#2E333D;--line2:#252931;--acc:#8FB4F0;--accbg:#1E2E4A;
@@ -104,7 +104,7 @@ pre.card{white-space:pre-wrap;font-size:12px}
 .tid{white-space:nowrap;overflow-wrap:normal}
 .badges{display:inline-flex;flex-wrap:wrap;gap:6px}
 
-/* TC-DASH-008 "지금" */
+/* "지금" 팀별 상태 */
 .live .tile{border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px;min-width:0}
 .lv{border:1px solid currentColor;white-space:normal}
 .lv-ok{color:var(--pass);background:var(--passbg)}
