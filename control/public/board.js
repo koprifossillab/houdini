@@ -222,7 +222,7 @@ function verdictCell(t) {
 function taskRow(t) {
   return h('tr', {},
     h('td', {}, h('b', { text: t.id }), ` ${t.name}`, t.links.task_ids.length ? h('div', { class: 'ev mono', text: [...t.links.task_ids, ...t.links.candidates].join(' · ') }) : null),
-    h('td', { text: t.team_label || '—' }),
+    h('td', { class: 'nw', text: t.team_label || '—' }),
     h('td', {}, h('span', { class: 'stack' }, rb(t.status, t.status_label), t.resolution_label ? h('span', { class: 'ev', text: `해결 여부: ${t.resolution_label}` }) : null,
       t.hold ? h('span', { class: 'ev', text: `보류 사유: ${t.hold.reason} · 재개: ${t.hold.resume}` }) : null)),
     h('td', { text: t.result || '—' }), h('td', {}, verdictCell(t)),
