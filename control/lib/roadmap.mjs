@@ -19,6 +19,8 @@ import { clean, iso, readBounded } from './sanitize.mjs';
 export const STAGE_STATES = { done: '완료', in_progress: '진행', waiting: '대기' };
 export const TASK_STATES = { planned: '예정', in_progress: '진행', qa_wait: 'QA 대기', director_wait: '감독 대기', user_wait: '사용자 대기', blocked: '차단', done: '완료', on_hold: '보류' };
 export const RESOLUTION = { unresolved: '미해결', resolved: '해결' };
+// verdicts the ROADMAP itself records (the director's judgement), kept apart from verdicts found on cards
+export const RM_VERDICTS = { PASS: 'PASS', FAIL: 'FAIL', REVIEW: 'REVIEW', pending: '판정 전' };
 const TEAMS = { 'TC-PROD': '① PROD', 'TC-QA': '② QA', 'TC-WORK': '③ WORK', 'TC-DASH': '④ DASH', director: '감독', user: '사용자' };
 const SCOPES = { technical: '기술', visual: '시각', physics: '물리', selfcheck: '자체 검사', run: '실행' };
 const ID = /^[a-z0-9][a-z0-9-]{1,60}$/;
@@ -48,6 +50,9 @@ function parseTask(t) {
     links: { task_ids: list(links.task_ids, 6, x => (/^TC-[0-9A-Z]{2,5}-\d{3}[A-Za-z0-9]{0,3}$/.test(String(x)) ? x : null)), candidates: list(links.candidates, 6, x => text(x, 60)) },
     // a schedule is shown only together with its basis
     schedule: t.schedule && typeof t.schedule === 'object' && t.schedule.basis ? { text: text(t.schedule.text, 80), basis: text(t.schedule.basis, 160) } : null,
+    kind: text(t.kind, 40) || null,
+    verdicts: list(t.verdicts, 6, v => (v && typeof v === 'object' && Object.hasOwn(SCOPES, v.scope) && Object.hasOwn(RM_VERDICTS, v.value)
+      ? { scope: v.scope, scope_label: SCOPES[v.scope], value: v.value, value_label: RM_VERDICTS[v.value], basis: text(v.basis, 160) } : null)),
     basis: text(t.basis, 200),
   };
 }
@@ -71,11 +76,18 @@ export function parseRoadmap(doc, project, file) {
     if (!s || typeof s !== 'object' || !Number.isInteger(s.no)) return null;
     const status = pick(s.status, STAGE_STATES);
     if (!status) return null;
-    return { no: s.no, id: ID.test(String(s.id || '')) ? s.id : `stage-${s.no}`, name: text(s.name, 80), status, status_label: STAGE_STATES[status],
+    return { no: s.no, id: ID.test(String(s.id || '')) ? s.id : `stage-${s.no}`, phase: /^[A-Z]$/.test(String(s.phase || '')) ? s.phase : null, name: text(s.name, 80), status, status_label: STAGE_STATES[status],
       exit: list(s.exit, 8, x => text(x, 200)), note: text(s.note, 200), tasks: tasks.filter(t => t.stage === s.no).map(t => t.id) };
   }).sort((a, b) => a.no - b.no);
   if (!stages.length) return null;
+  // top-level phases (e.g. A: Houdini effect test, B: Blender geologic map); the stages are the detail of one phase
+  const phases = list(doc.phases, 10, ph => {
+    if (!ph || typeof ph !== 'object' || !/^[A-Z]$/.test(String(ph.id || ''))) return null;
+    const status = pick(ph.status, STAGE_STATES);
+    return status ? { id: ph.id, name: text(ph.name, 80), status, status_label: STAGE_STATES[status], note: text(ph.note, 200), depends_on: /^[A-Z]$/.test(String(ph.depends_on || '')) ? ph.depends_on : null } : null;
+  });
   return {
+    phases,
     file, version: doc.version, previous: Number.isInteger(doc.previous) ? doc.previous : null,
     project: { id: project, name: text(doc.project.name, 80), goal: text(doc.project.goal, 400) },
     // at = the director's approval (null = not recorded); recorded_at = when this version's content was fixed;
@@ -163,8 +175,11 @@ export function buildRoadmapView(read, cards = [], now = Date.now(), originals =
     const count = s => cur.stages.filter(x => x.status === s).length;
     const current = cur.stages.find(s => s.status === 'in_progress') || null;
     const tasks = cur.tasks.map(t => ({ ...t, evidence: evidenceFor(t, cards, cur.approved.recorded_at, now) }));
+    const curPhase = cur.phases.find(x => x.status === 'in_progress') || null;
     return {
       id: p.id, project: cur.project, version: cur.version, approved: cur.approved,
+      phases: cur.phases.map(ph => ({ ...ph, stage_count: cur.stages.filter(s => s.phase === ph.id).length })),
+      current_phase: curPhase ? { id: curPhase.id, name: curPhase.name } : null,
       counts: { total: cur.stages.length, done: count('done'), in_progress: count('in_progress'), waiting: count('waiting') },
       current_stage: current ? { no: current.no, name: current.name } : null,
       stages: cur.stages.map(s => ({ ...s, task_count: s.tasks.length, task_done: tasks.filter(t => t.stage === s.no && t.status === 'done').length })),

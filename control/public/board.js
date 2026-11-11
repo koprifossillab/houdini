@@ -215,13 +215,15 @@ function verdictCell(t) {
   const e = t.evidence;
   const vs = e?.verdicts || [];
   return h('span', { class: 'stack' },
+    t.verdicts?.length ? h('span', {}, h('span', { class: 'lbl', text: '로드맵 기재 ' }), t.verdicts.map(x => `${x.scope_label} ${x.value_label}`).join(' · ')) : null,
+    h('span', { class: 'lbl', text: '카드 판정' }),
     vs.length ? h('span', {}, vs.map(x => verdict(x.verdict, null)).flatMap((b, i) => [b, ` ${vs[i].scope_label} `])) : h('span', { class: 'ev', text: '판정 카드 없음' }),
     vs.some(x => x.scope === 'technical' && x.verdict === 'PASS') && !e.visual_verdict ? h('span', { class: 'ev', text: '카드에 시각 판정 없음 — 기술 검증 결과일 뿐, 완료 아님' }) : null,
     e?.fails?.length ? h('span', { class: 'ev', text: `FAIL 기록 ${e.fails.length}건 보존: ${e.fails.map(f => `${f.scope_label} · ${f.title}`).join(' / ')}` }) : null);
 }
 function taskRow(t) {
   return h('tr', {},
-    h('td', {}, h('b', { text: t.id }), ` ${t.name}`, t.links.task_ids.length ? h('div', { class: 'ev mono', text: [...t.links.task_ids, ...t.links.candidates].join(' · ') }) : null),
+    h('td', {}, h('b', { text: t.id }), ` ${t.name}`, t.kind ? h('div', { class: 'ev', text: t.kind }) : null, t.links.task_ids.length ? h('div', { class: 'ev mono', text: [...t.links.task_ids, ...t.links.candidates].join(' · ') }) : null),
     h('td', { class: 'nw', text: t.team_label || '—' }),
     h('td', {}, h('span', { class: 'stack' }, rb(t.status, t.status_label), t.resolution_label ? h('span', { class: 'ev', text: `해결 여부: ${t.resolution_label}` }) : null,
       t.hold ? h('span', { class: 'ev', text: `보류 사유: ${t.hold.reason} · 재개: ${t.hold.resume}` }) : null)),
@@ -237,8 +239,12 @@ function roadmap(v) {
     v.append(
       h('section', { class: 'card' }, h('span', { class: 'lbl', text: '프로젝트 · 목표' }), h('h1', { text: p.project.name }), h('p', { class: 'lead', text: p.project.goal }),
         h('span', { class: 'ev', text: `로드맵 v${p.version} · 감독 승인 ${p.approved.directive} · 승인 시각 ${p.approved.at ? when(p.approved.at, p.approved.at_precision) : '미기록'}${p.approved.transcribed_by ? ` · ${p.approved.transcribed_by} 전사 ${when(p.approved.transcribed_at)}` : ''} · ${p.approved.original?.label || '원문 대조 전'} · 근거 ${p.approved.source.ref}` })),
+      p.phases?.length ? h('section', { class: 'card' }, h('h2', { text: '프로젝트 상위 단계' }),
+        h('div', { class: 'g2' }, p.phases.map(ph => h('div', { class: `step${p.current_phase?.id === ph.id ? ' cur' : ''}` },
+          h('span', { class: 'lbl', text: `${ph.id}단계${p.current_phase?.id === ph.id ? ' · 현재' : ''}` }), h('b', { text: ph.name }), h('span', {}, rb(ph.status, ph.status_label)),
+          h('span', { class: 'ev', text: [ph.stage_count ? `세부 로드맵 ${ph.stage_count}단계 (아래)` : '세부 로드맵 미등록', ph.depends_on ? `${ph.depends_on}단계 완료 후` : '', ph.note].filter(Boolean).join(' · ') }))))) : null,
       h('section', { class: 'g4' },
-        h('article', { class: 'card' }, h('span', { class: 'lbl', text: '전체 단계' }), h('span', { class: 'n', text: String(c.total) }), h('span', { class: 'ev', text: p.current_stage ? `현재 ${p.current_stage.no}단계 · ${p.current_stage.name}` : '진행 중인 단계 없음' })),
+        h('article', { class: 'card' }, h('span', { class: 'lbl', text: p.current_phase ? `${p.current_phase.id}단계 세부 단계` : '전체 단계' }), h('span', { class: 'n', text: String(c.total) }), h('span', { class: 'ev', text: p.current_stage ? `현재 ${p.current_stage.no}단계 · ${p.current_stage.name}` : '진행 중인 단계 없음' })),
         h('article', { class: 'card' }, h('span', { class: 'lbl', text: '완료' }), h('span', { class: 'n', text: String(c.done) }), h('span', { class: 'ev', text: '감독 승인 로드맵 기준' })),
         h('article', { class: 'card' }, h('span', { class: 'lbl', text: '진행' }), h('span', { class: 'n', text: String(c.in_progress) })),
         h('article', { class: 'card' }, h('span', { class: 'lbl', text: '대기' }), h('span', { class: 'n', text: String(c.waiting) }), h('span', { class: 'ev', text: '완료율은 계산하지 않음' }))),

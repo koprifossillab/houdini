@@ -165,3 +165,22 @@ test('R13 (QA 잔여 1) "원문 대조됨" only when the director originals list
   assert.equal(mk(idx('matched', 'cd'.repeat(8))).original.state, 'mismatch');
   assert.equal(view([base()], []).approved.original.state, 'not_recorded');
 });
+
+test('R14 phases: the stages are the detail of the phase in progress; roadmap-recorded verdicts stay apart from card verdicts', () => {
+  const doc = base({ version: 1, phases: [{ id: 'A', name: 'Houdini 효과 시험', status: 'in_progress' }, { id: 'B', name: 'Blender 지질도', status: 'waiting', depends_on: 'A' }],
+    stages: base().stages.map(s => ({ ...s, phase: 'A' })),
+    tasks: [...base().tasks.filter(t => t.id !== 'SH'),
+      { id: 'SH', name: '그림자 S', stage: 2, team: 'TC-PROD', status: 'on_hold', hold: { reason: '시각 REVIEW', resume: '감독 판단' }, links: { task_ids: ['TC-VIS-029'], candidates: ['p0r-S'] },
+        verdicts: [{ scope: 'technical', value: 'PASS' }, { scope: 'visual', value: 'REVIEW' }, { scope: 'visual', value: 'APPROVED' }] },
+      { id: 'P0-4', name: '분홍층', stage: 2, team: 'TC-PROD', status: 'director_wait', resolution: 'unresolved', kind: '개선 후보 작업', links: { task_ids: ['TC-VIS-030'] } }] });
+  const p = view([doc], CARDS);
+  assert.equal(p.current_phase.id, 'A');
+  assert.deepEqual(p.phases.map(x => [x.id, x.status, x.stage_count, x.depends_on]), [['A', 'in_progress', 3, null], ['B', 'waiting', 0, 'A']]);
+  const sh = p.tasks.find(t => t.id === 'SH');
+  assert.equal(sh.status_label, '보류');
+  assert.deepEqual(sh.verdicts.map(v => `${v.scope_label} ${v.value_label}`), ['기술 PASS', '시각 REVIEW'], 'unknown verdict values are dropped');
+  assert.ok(!sh.evidence.verdicts.some(v => v.scope === 'visual'), 'card verdicts are not mixed with the roadmap-recorded ones');
+  const p04 = p.tasks.find(t => t.id === 'P0-4');
+  assert.equal(p04.kind, '개선 후보 작업');
+  assert.equal(p04.evidence.state, 'none', 'no TC-VIS-030 card in this fixture → not confirmed');
+});
