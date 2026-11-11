@@ -17,7 +17,9 @@ import path from 'node:path';
 import { clean, iso, readBounded } from './sanitize.mjs';
 
 export const STAGE_STATES = { done: '완료', in_progress: '진행', waiting: '대기' };
-export const TASK_STATES = { planned: '예정', in_progress: '진행', qa_wait: 'QA 대기', director_wait: '감독 대기', user_wait: '사용자 대기', blocked: '차단', done: '완료', on_hold: '보류' };
+// team_wait: approved by the director but no evidence yet that the team started (director 2026-11-11: approval ≠ work)
+export const TASK_STATES = { planned: '예정', team_wait: '제작팀 착수 대기', in_progress: '진행', qa_wait: 'QA 대기', director_wait: '감독 대기', user_wait: '사용자 대기', blocked: '차단', done: '완료', on_hold: '보류' };
+export const DECISIONS = { approved: '승인', rejected: '불승인', design_only: '설계만 승인', on_hold: '보류' };
 export const RESOLUTION = { unresolved: '미해결', resolved: '해결' };
 // verdicts the ROADMAP itself records (the director's judgement), kept apart from verdicts found on cards
 export const RM_VERDICTS = { PASS: 'PASS', FAIL: 'FAIL', REVIEW: 'REVIEW', pending: '판정 전' };
@@ -47,10 +49,16 @@ function parseTask(t) {
     result: text(t.result), next: text(t.next),
     done_when: list(t.done_when, 8, x => text(x, 160)),
     depends_on: list(t.depends_on, 8, x => (TASK_ID.test(String(x)) ? x : null)),
-    links: { task_ids: list(links.task_ids, 6, x => (/^TC-[0-9A-Z]{2,5}-\d{3}[A-Za-z0-9]{0,3}$/.test(String(x)) ? x : null)), candidates: list(links.candidates, 6, x => text(x, 60)) },
+    // candidates: exact names, or a prefix ending in * ("v030-4*"); include_unassigned: also the task's cards that
+    // name no candidate (shared analysis). Lets two tasks of one task number keep their evidence apart (② QA 7339370).
+    links: { task_ids: list(links.task_ids, 6, x => (/^TC-[0-9A-Z]{2,5}-\d{3}[A-Za-z0-9]{0,3}$/.test(String(x)) ? x : null)), candidates: list(links.candidates, 6, x => text(x, 60)),
+      include_unassigned: links.include_unassigned === true },
     // a schedule is shown only together with its basis
     schedule: t.schedule && typeof t.schedule === 'object' && t.schedule.basis ? { text: text(t.schedule.text, 80), basis: text(t.schedule.basis, 160) } : null,
     kind: text(t.kind, 40) || null,
+    // director decisions on the sub-items of a task, each with what the team has actually done since (or not)
+    decisions: list(t.decisions, 10, d => (d && typeof d === 'object' && Object.hasOwn(DECISIONS, d.decision)
+      ? { item: text(d.item, 40), decision: d.decision, decision_label: DECISIONS[d.decision], work: text(d.work, 200) || '착수 근거 없음', basis: text(d.basis, 160) } : null)),
     verdicts: list(t.verdicts, 6, v => (v && typeof v === 'object' && Object.hasOwn(SCOPES, v.scope) && Object.hasOwn(RM_VERDICTS, v.value)
       ? { scope: v.scope, scope_label: SCOPES[v.scope], value: v.value, value_label: RM_VERDICTS[v.value], basis: text(v.basis, 160) } : null)),
     basis: text(t.basis, 200),
@@ -134,7 +142,12 @@ function evidenceFor(task, cards, recordedAt, now) {
   if (!ids.length) return { state: 'none', label: '연결된 인계 카드 없음 — 로드맵 기재 내용만', grade: 'claim' };
   // a card's candidate may carry a commit after the name ("p0r-A2 c3a97df"): match on the name only
   const candOf = c => String(c.candidate || '').split(/\s+/)[0];
-  const mine = cards.filter(c => ids.includes(c.task_id) && (!cands.length || cands.includes(candOf(c)))).sort((a, b) => a.at.localeCompare(b.at));
+  const candOk = c => {
+    const n = candOf(c);
+    if (!n) return !cands.length || task.links.include_unassigned;
+    return !cands.length ? !task.links.include_unassigned : cands.some(x => (x.endsWith('*') ? n.startsWith(x.slice(0, -1)) : n === x));
+  };
+  const mine = cards.filter(c => ids.includes(c.task_id) && candOk(c)).sort((a, b) => a.at.localeCompare(b.at));
   if (!mine.length) return { state: 'none', label: '연결된 카드 없음 — 미확인', grade: 'none' };
   const last = mine.at(-1);
   // newest verdict per scope, and every FAIL kept separately (never merged into a PASS)

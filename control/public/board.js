@@ -201,7 +201,7 @@ function home(v) {
 }
 
 // ── TC-DASH-010 프로젝트 로드맵 — 단계·작업 상태는 감독 승인 로드맵 파일에서만, 카드는 옆에 근거로만 ─────────
-const RTONE = { done: 'ok', in_progress: 'info', waiting: 'unk', planned: 'unk', qa_wait: 'wait', director_wait: 'wait', user_wait: 'wait', blocked: 'bad', on_hold: 'unk' };
+const RTONE = { done: 'ok', in_progress: 'info', waiting: 'unk', planned: 'unk', team_wait: 'unk', qa_wait: 'wait', director_wait: 'wait', user_wait: 'wait', blocked: 'bad', on_hold: 'unk' };
 const rb = (key, label) => h('span', { class: `b lv lv-${RTONE[key] || 'unk'}`, text: label });
 function evLine(e) {
   if (!e || e.state === 'none') return h('span', { class: 'ev', text: e?.label || '근거 없음' });
@@ -226,7 +226,8 @@ function taskRow(t) {
     h('td', {}, h('b', { text: t.id }), ` ${t.name}`, t.kind ? h('div', { class: 'ev', text: t.kind }) : null, t.links.task_ids.length ? h('div', { class: 'ev mono', text: [...t.links.task_ids, ...t.links.candidates].join(' · ') }) : null),
     h('td', { class: 'nw', text: t.team_label || '—' }),
     h('td', {}, h('span', { class: 'stack' }, rb(t.status, t.status_label), t.resolution_label ? h('span', { class: 'ev', text: `해결 여부: ${t.resolution_label}` }) : null,
-      t.hold ? h('span', { class: 'ev', text: `보류 사유: ${t.hold.reason} · 재개: ${t.hold.resume}` }) : null)),
+      t.hold ? h('span', { class: 'ev', text: `보류 사유: ${t.hold.reason} · 재개: ${t.hold.resume}` }) : null,
+      ...(t.decisions || []).map(d => h('span', { class: 'ev' }, h('b', { text: `${d.item} ` }), `감독 ${d.decision_label} — 작업: ${d.work}`)))),
     h('td', { text: t.result || '—' }), h('td', {}, verdictCell(t)),
     h('td', { text: t.next || '—' }), h('td', { text: t.done_when.join(' / ') || '—' }), h('td', { text: t.depends_on.join(', ') || '—' }),
     h('td', {}, evLine(t.evidence), t.schedule ? h('span', { class: 'ev', text: `일정 ${t.schedule.text} (근거: ${t.schedule.basis})` }) : null));

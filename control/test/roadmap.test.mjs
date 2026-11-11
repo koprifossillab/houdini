@@ -184,3 +184,29 @@ test('R14 phases: the stages are the detail of the phase in progress; roadmap-re
   assert.equal(p04.kind, '개선 후보 작업');
   assert.equal(p04.evidence.state, 'none', 'no TC-VIS-030 card in this fixture → not confirmed');
 });
+
+test('R15 two tasks of one task number keep their evidence apart (candidate prefix, cards without a candidate)', () => {
+  const doc = base({ tasks: [
+    { id: 'P0-4', name: '분홍층', stage: 2, status: 'director_wait', links: { task_ids: ['TC-VIS-030'], candidates: ['v030-4*'], include_unassigned: true } },
+    { id: 'P0-5', name: '브레치아', stage: 2, status: 'director_wait', links: { task_ids: ['TC-VIS-030'], include_unassigned: true } }] });
+  const cards = [
+    card({ task_id: 'TC-VIS-030', candidate: null, title: '원인 분석', at: T(60) }),
+    card({ task_id: 'TC-VIS-030', candidate: 'v030-4a4c e3ecc05', verdict: 'FAIL', verdict_scope: 'selfcheck', title: 'C4 FAIL', at: T(20) })];
+  const p = view([doc], cards);
+  const p4 = p.tasks.find(t => t.id === 'P0-4'), p5 = p.tasks.find(t => t.id === 'P0-5');
+  assert.equal(p4.evidence.last.title, 'C4 FAIL');
+  assert.equal(p4.evidence.fails.length, 1);
+  assert.equal(p5.evidence.last.title, '원인 분석');
+  assert.equal(p5.evidence.fails.length, 0, 'the 4a·4c FAIL does not appear on the design task');
+  // without the flag, a task with no candidates keeps the old behaviour (all cards of the task number)
+  const old = view([base({ tasks: [{ id: 'Q', name: 'q', stage: 2, status: 'planned', links: { task_ids: ['TC-VIS-030'] } }] })], cards).tasks[0];
+  assert.equal(old.evidence.fails.length, 1);
+});
+
+test('R16 director decisions on sub-items are shown with what the team actually did; approval alone is "제작팀 착수 대기"', () => {
+  const doc = base({ tasks: [{ id: 'P0-4', name: '분홍층', stage: 2, status: 'team_wait', decisions: [
+    { item: '4a·4c', decision: 'approved', work: '후보 자체 검사 C4 FAIL', basis: 'card' }, { item: '4b', decision: 'rejected' }, { item: '4d', decision: 'design_only' }, { item: 'x', decision: 'maybe' }] }] });
+  const t = view([doc], []).tasks[0];
+  assert.equal(t.status_label, '제작팀 착수 대기');
+  assert.deepEqual(t.decisions.map(d => `${d.item}:${d.decision_label}:${d.work}`), ['4a·4c:승인:후보 자체 검사 C4 FAIL', '4b:불승인:착수 근거 없음', '4d:설계만 승인:착수 근거 없음']);
+});
