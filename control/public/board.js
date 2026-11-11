@@ -221,6 +221,35 @@ function verdictCell(t) {
     vs.some(x => x.scope === 'technical' && x.verdict === 'PASS') && !e.visual_verdict ? h('span', { class: 'ev', text: '카드에 시각 판정 없음 — 기술 검증 결과일 뿐, 완료 아님' }) : null,
     e?.fails?.length ? h('span', { class: 'ev', text: `FAIL 기록 ${e.fails.length}건 보존: ${e.fails.map(f => `${f.scope_label} · ${f.title}`).join(' / ')}` }) : null);
 }
+// TC-DASH-010 v4: four separate states per task (감독 승인 · 제작팀 실제 작업 · QA 검증 · 시각 승인)
+const ATONE = { ok: 'ok', wait: 'wait', fail: 'bad', review: 'wait', hold: 'unk', none: 'unk' };
+function axesCell(t) {
+  if (!t.axes) return h('span', { class: 'ev', text: '네 가지 상태 기재 없음 (이전 판)' });
+  return h('span', { class: 'stack' }, Object.values(t.axes).map(a => h('span', {},
+    h('span', { class: 'lbl', text: `${a.label} ` }), h('span', { class: `b lv lv-${ATONE[a.tone] || 'unk'}`, text: a.tone_label }), a.text ? ` ${a.text}` : '',
+    a.basis ? h('span', { class: 'ev', text: ` · 근거 ${a.basis}` }) : null,
+    a.downgraded ? h('span', { class: 'ev warnline', text: ' · 로드맵에 PASS 판정 기록이 없어 대기로 표시' }) : null)));
+}
+const tl = x => `${x.id} ${x.name}${x.team_label ? ` · 담당 ${x.team_label}` : ''}`;
+function glanceCard(p) {
+  const g = p.glance;
+  if (!g) return null;
+  const row = (n, label, body) => h('div', { class: 'kv' }, h('span', { class: 'lbl', text: `${n}. ${label}` }), h('div', { class: 'stack' }, body));
+  const lc = g.last.card;
+  return h('section', { class: 'card focus' }, h('h2', { text: '한눈에 보기' }),
+    row(1, '지금 단계', h('b', { text: [g.where.phase ? `${g.where.phase.id}단계 ${g.where.phase.name}` : null, g.where.stage ? `세부 ${g.where.stage.no}/${g.where.stages}단계 ${g.where.stage.name}` : '진행 중인 세부 단계 없음'].filter(Boolean).join(' › ') })),
+    row(2, '지금 제작 중', [
+      ...(g.working.length ? g.working.map(x => h('span', {}, rb(x.status, x.status_label), ` ${tl(x)}`, x.work ? h('span', { class: 'ev', text: ` — ${x.work}` }) : null)) : [h('span', { class: 'ev', text: '로드맵에 진행으로 적힌 작업 없음' })]),
+      g.recent_cards.length ? h('span', { class: 'ev', text: `최근 2시간 카드: ${g.recent_cards.map(c => `${c.id} ${c.team} ${when(c.at)} ${c.title}`).join(' / ')} — 근거로만 표시, 상태는 바꾸지 않음` }) : h('span', { class: 'ev', text: '최근 2시간 안에 연결된 카드 없음 — 지금 제작 여부 미확인' })]),
+    row(3, 'FAIL · REVIEW · 보류', g.issues.length ? g.issues.map(x => h('span', {}, h('b', { text: tl(x) }), h('span', { class: 'ev', text: ` — ${x.why.join(' · ')}` }))) : h('span', { class: 'ev', text: '없음' })),
+    row(4, '막힌 이유', g.blocked.length ? g.blocked.map(x => h('span', {}, h('b', { text: `${x.id} ` }), x.reason)) : h('span', { class: 'ev', text: '기재 없음' })),
+    row(5, '다음 작업', g.next.length ? h('ol', {}, g.next.map(x => h('li', { text: x }))) : h('span', { class: 'ev', text: '기재 없음' })),
+    row(6, '담당 팀', h('span', { text: [...new Set(p.tasks.filter(t => !['done', 'planned'].includes(t.status) && t.team_label).map(t => `${t.team_label}: ${t.id}`))].join(' · ') || '—' })),
+    row(7, '감독 · 사용자 승인 필요', g.approvals.length ? g.approvals.map(x => h('span', {}, h('span', { class: 'who', text: x.who_label }), ` ${x.id} — ${x.what}`)) : h('span', { class: 'ev', text: '기재 없음' })),
+    row(8, '마지막 확인 시각 · 근거', [h('span', { text: `로드맵 v${p.version} 내용 기록 ${when(g.last.roadmap_at)} · 감독 승인 ${p.approved.directive}` }),
+      lc ? h('span', {}, '가장 최근 연결 카드 ', grade(lc.grade), ` ${lc.team} · ${when(lc.at)} · ${lc.id} · ${lc.title}${lc.ev_state === 'live' ? '' : ' — 지금 상태 미확인'}`) : h('span', { class: 'ev', text: '연결된 카드 없음' }),
+      p.review_needed.length ? h('span', { class: 'ev warnline', text: `로드맵보다 새 카드: ${p.review_needed.join(', ')} — 로드맵 갱신 검토 필요 (자동 반영 안 함)` }) : null]));
+}
 function taskRow(t) {
   return h('tr', {},
     h('td', {}, h('b', { text: t.id }), ` ${t.name}`, t.kind ? h('div', { class: 'ev', text: t.kind }) : null, t.links.task_ids.length ? h('div', { class: 'ev mono', text: [...t.links.task_ids, ...t.links.candidates].join(' · ') }) : null),
@@ -229,7 +258,7 @@ function taskRow(t) {
       t.hold ? h('span', { class: 'ev', text: `보류 사유: ${t.hold.reason} · 재개: ${t.hold.resume}` }) : null,
       ...(t.decisions || []).map(d => h('span', { class: 'ev' }, h('b', { text: `${d.item} ` }), `감독 ${d.decision_label} — 작업: ${d.work}`,
         d.card_evidence ? (d.card_evidence.missing ? ' · 근거 카드 없음' : [' · 근거 ', grade(d.card_evidence.grade), ` ${d.card_evidence.team} ${when(d.card_evidence.at)}`]) : null)))),
-    h('td', { text: t.result || '—' }), h('td', {}, verdictCell(t)),
+    h('td', {}, h('span', { class: 'stack' }, h('span', { text: t.result || '—' }), t.blocked_by ? h('span', { class: 'ev warnline', text: `막힌 이유: ${t.blocked_by}` }) : null)), h('td', {}, axesCell(t)), h('td', {}, verdictCell(t)),
     h('td', { text: t.next || '—' }), h('td', { text: t.done_when.join(' / ') || '—' }), h('td', { text: t.depends_on.join(', ') || '—' }),
     h('td', {}, evLine(t.evidence), t.schedule ? h('span', { class: 'ev', text: `일정 ${t.schedule.text} (근거: ${t.schedule.basis})` }) : null));
 }
@@ -241,6 +270,7 @@ function roadmap(v) {
     v.append(
       h('section', { class: 'card' }, h('span', { class: 'lbl', text: '프로젝트 · 목표' }), h('h1', { text: p.project.name }), h('p', { class: 'lead', text: p.project.goal }),
         h('span', { class: 'ev', text: `로드맵 v${p.version} · 감독 승인 ${p.approved.directive} · 승인 시각 ${p.approved.at ? when(p.approved.at, p.approved.at_precision) : '미기록'}${p.approved.transcribed_by ? ` · ${p.approved.transcribed_by} 전사 ${when(p.approved.transcribed_at)}` : ''} · ${p.approved.original?.label || '원문 대조 전'} · 근거 ${p.approved.source.ref}` })),
+      glanceCard(p),
       p.phases?.length ? h('section', { class: 'card' }, h('h2', { text: '프로젝트 상위 단계' }),
         h('div', { class: 'g2' }, p.phases.map(ph => h('div', { class: `step${p.current_phase?.id === ph.id ? ' cur' : ''}` },
           h('span', { class: 'lbl', text: `${ph.id}단계${p.current_phase?.id === ph.id ? ' · 현재' : ''}` }), h('b', { text: ph.name }), h('span', {}, rb(ph.status, ph.status_label)),
@@ -266,7 +296,7 @@ function roadmap(v) {
           const tasks = p.tasks.filter(t => t.stage === s.no);
           const d = h('details', { class: 'card', open: p.current_stage?.no === s.no },
             h('summary', {}, h('b', { text: `${s.no} · ${s.name} ` }), rb(s.status, s.status_label), h('span', { class: 'ev', text: `  세부 ${tasks.length}${s.exit.length ? ` · 완료 조건: ${s.exit.join(' / ')}` : ''}` })),
-            tasks.length ? h('div', { class: 'scroll' }, h('table', {}, h('thead', {}, h('tr', {}, ['작업', '담당', '상태', '현재 결과', '판정(범위별)', '다음 작업', '완료 조건', '선행', '마지막 근거 · 등급'].map(x => h('th', { text: x })))), h('tbody', {}, tasks.map(taskRow)))) : empty('세부 작업 없음'));
+            tasks.length ? h('div', { class: 'scroll' }, h('table', {}, h('thead', {}, h('tr', {}, ['작업', '담당', '상태', '현재 결과', '네 가지 상태', '판정(범위별)', '다음 작업', '완료 조건', '선행', '마지막 근거 · 등급'].map(x => h('th', { text: x })))), h('tbody', {}, tasks.map(taskRow)))) : empty('세부 작업 없음'));
           return d;
         })));
   }

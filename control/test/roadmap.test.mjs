@@ -224,3 +224,74 @@ test('R17 "설계 승인" is its own decision value; a decision can cite its car
   assert.equal(t.decisions[2].card, null, 'a path outside the team folders is refused');
   assert.equal(t.evidence.state, 'none', 'the task evidence still follows the links');
 });
+
+test('R18 (v4 지시 2항) four separate states per task; ok on the QA or visual axis needs a recorded PASS of that scope', () => {
+  const axes = { director: { tone: 'ok', text: '승인' }, production: { tone: 'fail', text: '자체 검사 FAIL' }, qa: { tone: 'ok', text: '쓴 사람이 ok 라고 적음' }, visual: { tone: 'ok', text: '쓴 사람이 ok 라고 적음' } };
+  const doc = base({ tasks: [
+    { id: 'A', name: 'PASS 기록 없음', stage: 2, status: 'in_progress', axes },
+    { id: 'B', name: '기술 PASS 만', stage: 2, status: 'in_progress', axes, verdicts: [{ scope: 'technical', value: 'PASS' }, { scope: 'visual', value: 'REVIEW' }] },
+    { id: 'C', name: '둘 다 PASS', stage: 2, status: 'in_progress', axes, verdicts: [{ scope: 'technical', value: 'PASS' }, { scope: 'visual', value: 'PASS' }] },
+    { id: 'D', name: '이전 판', stage: 2, status: 'planned' },
+    { id: 'E', name: '모르는 값', stage: 2, status: 'planned', axes: { director: { tone: 'done', text: 'x' } } },
+  ] });
+  const p = view([doc], []);
+  const t = id => p.tasks.find(x => x.id === id).axes;
+  assert.deepEqual(Object.keys(t('A')), ['director', 'production', 'qa', 'visual']);
+  assert.equal(t('A').director.tone, 'ok');
+  assert.equal(t('A').production.tone, 'fail');
+  assert.equal(t('A').qa.tone, 'wait'); assert.equal(t('A').qa.downgraded, true);
+  assert.equal(t('A').visual.tone, 'wait');
+  assert.equal(t('B').qa.tone, 'ok'); assert.equal(t('B').visual.tone, 'wait');
+  assert.equal(t('C').qa.tone, 'ok'); assert.equal(t('C').visual.tone, 'ok');
+  assert.equal(t('D'), null);
+  assert.equal(t('E').director.tone, 'none');
+});
+
+test('R19 (v4 지시 3항) at a glance: stage, work in progress, FAIL·REVIEW·hold, blockers, next, approvals, last evidence', () => {
+  const doc = base({ tasks: [
+    { id: 'P0-1', name: '판상', stage: 2, team: 'TC-PROD', status: 'on_hold', hold: { reason: 'A2 우선', resume: '감독' } },
+    { id: 'P0-2', name: '파편 A2', stage: 2, team: 'TC-PROD', status: 'user_wait', blocked_by: '사용자 BAT 실행 대기', links: { task_ids: ['TC-VIS-029'], candidates: ['p0r-A2'] },
+      approval_needed: [{ who: 'user', what: 'BAT 1회 실행' }, { who: 'nobody', what: 'x' }, { who: 'director', what: '' }],
+      verdicts: [{ scope: 'technical', value: 'PASS' }] },
+    { id: 'P0-4', name: '인장', stage: 2, team: 'TC-PROD', status: 'in_progress', axes: { production: { tone: 'fail', text: 'pk4 FAIL' }, qa: { tone: 'review', text: '사전 확인' } },
+      verdicts: [{ scope: 'selfcheck', value: 'FAIL' }], approval_needed: [{ who: 'director', what: 'QA 판정 뒤 판단' }] },
+    { id: 'S6', name: '렌더', stage: 3, team: 'TC-PROD', status: 'planned' },
+  ], next_steps: ['QA rev4 확정'] });
+  const g = view([doc], CARDS).glance;
+  assert.equal(g.where.phase, null);
+  assert.deepEqual(g.where.stage, { no: 2, name: '개선' });
+  assert.deepEqual(g.working.map(x => x.id), ['P0-4']);
+  assert.equal(g.working[0].work, 'pk4 FAIL');
+  const iss = Object.fromEntries(g.issues.map(x => [x.id, x.why]));
+  assert.deepEqual(Object.keys(iss).sort(), ['P0-1', 'P0-4']);
+  assert.ok(iss['P0-4'].includes('자체 검사 FAIL') && iss['P0-4'].includes('제작팀 실제 작업 FAIL') && iss['P0-4'].includes('QA 검증 REVIEW'));
+  assert.ok(iss['P0-1'].includes('보류'));
+  assert.deepEqual(g.blocked.map(x => [x.id, x.reason]), [['P0-1', 'A2 우선'], ['P0-2', '사용자 BAT 실행 대기']]);
+  assert.deepEqual(g.approvals.map(x => [x.id, x.who, x.what]), [['P0-2', 'user', 'BAT 1회 실행'], ['P0-4', 'director', 'QA 판정 뒤 판단']]);
+  assert.deepEqual(g.next, ['QA rev4 확정']);
+  // last evidence = the newest linked card; it is evidence only (P0-2 stays user_wait)
+  assert.equal(g.last.card.id, 'P0-2');
+  assert.equal(g.last.card.at, T(50));
+  assert.equal(g.last.card.ev_state, 'live');
+  assert.deepEqual(g.recent_cards.map(x => x.id), ['P0-2']);
+  assert.equal(view([doc], CARDS).tasks.find(t => t.id === 'P0-2').status, 'user_wait');
+  // nothing in the cards older than 2 h → no recent cards, last card marked stale
+  const g2 = view([doc], CARDS, NOW + 3 * 3600000).glance;
+  assert.equal(g2.recent_cards.length, 0);
+  assert.equal(g2.last.card.ev_state, 'stale');
+});
+
+test('R20 the registered v004 parses, keeps FAIL·REVIEW as they are, and its QA/visual axes are never ok without a PASS', async () => {
+  const f = path.join(process.env.HOME || '', 'tc_handoff/ROADMAP/thermal-collapse/v004.json');
+  let doc; try { doc = JSON.parse(await fs.readFile(f, 'utf8')); } catch { return; } // only where the file exists
+  const r = parseRoadmap(doc, 'thermal-collapse', 'v004.json');
+  assert.ok(r);
+  for (const t of r.tasks) {
+    if (!t.axes) continue;
+    assert.ok(!Object.values(t.axes).some(a => a.downgraded), `${t.id} axis written ok without a PASS`);
+    if (t.verdicts.some(v => v.value === 'FAIL')) assert.notEqual(t.status, 'done');
+    if (t.axes.visual.tone === 'ok') assert.ok(t.verdicts.some(v => v.scope === 'visual' && v.value === 'PASS'));
+  }
+  assert.ok(r.tasks.find(t => t.id === 'P0-6'));
+  assert.equal(r.tasks.find(t => t.id === 'P0-4').axes.production.tone, 'fail');
+});

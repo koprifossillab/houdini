@@ -24,6 +24,11 @@ export const DECISIONS = { approved: '승인', rejected: '불승인', design_app
 export const RESOLUTION = { unresolved: '미해결', resolved: '해결' };
 // verdicts the ROADMAP itself records (the director's judgement), kept apart from verdicts found on cards
 export const RM_VERDICTS = { PASS: 'PASS', FAIL: 'FAIL', REVIEW: 'REVIEW', pending: '판정 전' };
+// TC-DASH-010 v4 지시 2항: each task shows four separate states — director approval, the team's actual work,
+// QA verification and visual approval. Each axis is one closed tone plus the roadmap's own words and basis.
+export const AXES = { director: '감독 승인', production: '제작팀 실제 작업', qa: 'QA 검증', visual: '시각 승인' };
+export const AXIS_TONES = { ok: '충족', wait: '대기', fail: 'FAIL', review: 'REVIEW', hold: '보류', none: '해당 없음' };
+const WHO = { director: '감독', user: '사용자' };
 const TEAMS = { 'TC-PROD': '① PROD', 'TC-QA': '② QA', 'TC-WORK': '③ WORK', 'TC-DASH': '④ DASH', director: '감독', user: '사용자' };
 const SCOPES = { technical: '기술', visual: '시각', physics: '물리', selfcheck: '자체 검사', run: '실행' };
 const ID = /^[a-z0-9][a-z0-9-]{1,60}$/;
@@ -41,7 +46,7 @@ function parseTask(t) {
   const status = pick(t.status, TASK_STATES);
   if (!status) return null;
   const links = t.links && typeof t.links === 'object' ? t.links : {};
-  return {
+  const out = {
     id: t.id, name: text(t.name, 120), stage: Number.isInteger(t.stage) ? t.stage : null,
     team: pick(t.team, TEAMS), team_label: TEAMS[t.team] || null,
     status, status_label: TASK_STATES[status],
@@ -64,7 +69,29 @@ function parseTask(t) {
     verdicts: list(t.verdicts, 6, v => (v && typeof v === 'object' && Object.hasOwn(SCOPES, v.scope) && Object.hasOwn(RM_VERDICTS, v.value)
       ? { scope: v.scope, scope_label: SCOPES[v.scope], value: v.value, value_label: RM_VERDICTS[v.value], basis: text(v.basis, 160) } : null)),
     basis: text(t.basis, 200),
+    blocked_by: text(t.blocked_by, 200) || null,
+    approval_needed: list(t.approval_needed, 6, a => (a && typeof a === 'object' && Object.hasOwn(WHO, a.who) && text(a.what, 160)
+      ? { who: a.who, who_label: WHO[a.who], what: text(a.what, 160) } : null)),
   };
+  out.axes = parseAxes(t.axes, out.verdicts);
+  return out;
+}
+
+// "FAIL·REVIEW·보류를 임의로 PASS나 완료로 바꾸지 마십시오": the QA axis may read 충족 only when the roadmap records a
+// technical PASS, the visual axis only with a visual PASS; anything else written as ok is shown as 대기.
+function parseAxes(a, verdicts) {
+  if (!a || typeof a !== 'object') return null;
+  const has = (scope, value) => verdicts.some(v => v.scope === scope && v.value === value);
+  const out = {};
+  for (const k of Object.keys(AXES)) {
+    const x = a[k];
+    if (!x || typeof x !== 'object' || !Object.hasOwn(AXIS_TONES, x.tone)) { out[k] = { tone: 'none', tone_label: '기재 없음', text: '', basis: '', label: AXES[k] }; continue; }
+    let tone = x.tone;
+    if (tone === 'ok' && k === 'qa' && !has('technical', 'PASS')) tone = 'wait';
+    if (tone === 'ok' && k === 'visual' && !has('visual', 'PASS')) tone = 'wait';
+    out[k] = { label: AXES[k], tone, tone_label: AXIS_TONES[tone], text: text(x.text, 200), basis: text(x.basis, 160), downgraded: tone !== x.tone };
+  }
+  return out;
 }
 
 export function parseRoadmap(doc, project, file) {
@@ -180,6 +207,31 @@ function originalOf(approved, originals) {
   return o.content === 'matched' && o.sha256 === approved.source.sha256 ? 'matched' : 'mismatch';
 }
 
+// TC-DASH-010 v4 지시 3항: what the screen must answer at once. Everything here is read from the roadmap version,
+// except "최근 카드" and "마지막 근거", which are the linked cards shown beside it (they never change a state).
+const ISSUE_TONES = ['fail', 'review', 'hold'];
+function glanceOf(cur, tasks, stage, phase) {
+  const brief = t => ({ id: t.id, name: t.name, team_label: t.team_label, status: t.status, status_label: t.status_label });
+  const issues = tasks.map(t => {
+    const why = [];
+    if (t.status === 'on_hold' || t.status === 'blocked') why.push(t.status_label);
+    for (const v of t.verdicts) if (v.value === 'FAIL' || v.value === 'REVIEW') why.push(`${v.scope_label} ${v.value_label}`);
+    if (t.axes) for (const a of Object.values(t.axes)) if (ISSUE_TONES.includes(a.tone)) why.push(`${a.label} ${a.tone_label}`);
+    return why.length ? { ...brief(t), why: [...new Set(why)] } : null;
+  }).filter(Boolean);
+  const blocked = tasks.filter(t => t.blocked_by || t.hold).map(t => ({ ...brief(t), reason: t.blocked_by || t.hold.reason }));
+  const approvals = tasks.flatMap(t => t.approval_needed.map(a => ({ ...brief(t), who: a.who, who_label: a.who_label, what: a.what })));
+  const evid = tasks.filter(t => t.evidence.last).map(t => ({ ...brief(t), ...t.evidence.last, ev_state: t.evidence.state })).sort((a, b) => b.at.localeCompare(a.at));
+  return {
+    where: { phase: phase ? { id: phase.id, name: phase.name } : null, stage: stage ? { no: stage.no, name: stage.name } : null, stages: cur.stages.length },
+    working: tasks.filter(t => t.status === 'in_progress').map(t => ({ ...brief(t), work: t.axes?.production?.text || t.result })),
+    recent_cards: evid.filter(e => e.ev_state === 'live').slice(0, 6),
+    issues, blocked, approvals,
+    next: cur.next_steps,
+    last: { roadmap_at: cur.approved.recorded_at, card: evid[0] || null },
+  };
+}
+
 export function buildRoadmapView(read, cards = [], now = Date.now(), originals = null) {
   if (read.state !== 'ok') return { state: read.state, message: read.message, projects: [] };
   const projects = read.projects.map(p => {
@@ -194,6 +246,7 @@ export function buildRoadmapView(read, cards = [], now = Date.now(), originals =
     const tasks = cur.tasks.map(t => ({ ...t, decisions: t.decisions.map(d => (d.card ? { ...d, card_evidence: cardOf(d.card) } : d)), evidence: evidenceFor(t, cards, cur.approved.recorded_at, now) }));
     const curPhase = cur.phases.find(x => x.status === 'in_progress') || null;
     return {
+      glance: glanceOf(cur, tasks, current, curPhase),
       id: p.id, project: cur.project, version: cur.version, approved: cur.approved,
       phases: cur.phases.map(ph => ({ ...ph, stage_count: cur.stages.filter(s => s.phase === ph.id).length })),
       current_phase: curPhase ? { id: curPhase.id, name: curPhase.name } : null,

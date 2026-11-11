@@ -119,3 +119,4 @@ table.feed td{vertical-align:top}
 .step.cur{outline:2px solid var(--acc);outline-offset:1px}
 details.card>summary{cursor:pointer}
 .nw{white-space:nowrap}
+.kv .who{font-weight:700;color:var(--acc);margin-right:6px}
