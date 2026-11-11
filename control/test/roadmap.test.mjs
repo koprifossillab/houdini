@@ -131,8 +131,7 @@ test('R10 (QA REVIEW 1) a roadmap without a cited source is refused; without a m
   assert.equal(parseRoadmap(base({ approved: { by: 'director', at: T(30), source: {} } }), 'demo', 'v001.json'), null);
   const r = parseRoadmap(base({ approved: { by: 'director', directive: 'D', at: T(30), source: { ref: '원문' } } }), 'demo', 'v001.json');
   assert.equal(r.approved.original_checked, false);
-  const ok = parseRoadmap(base({ approved: { by: 'director', at: T(30), source: { ref: '원문', sha256: 'ab'.repeat(32) } } }), 'demo', 'v001.json');
-  assert.equal(ok.approved.original_checked, true);
+  assert.equal(parseRoadmap(base({ approved: { by: 'director', at: T(30), source: { ref: '   ' } } }), 'demo', 'v001.json'), null, 'blank ref refused');
 });
 
 test('R11 (QA REVIEW 2) approval time and transcription time are kept apart; "newer than the roadmap" uses the recorded time', () => {
@@ -152,4 +151,17 @@ test('R12 a card dated in the future is not shown as current evidence', () => {
   const e = p.tasks.find(t => t.id === 'P0-2').evidence;
   assert.equal(e.state, 'future');
   assert.match(e.label, /미확인/);
+});
+
+test('R13 (QA 잔여 1) "원문 대조됨" only when the director originals list matches; a written SHA alone is not enough', () => {
+  const sha = 'ab'.repeat(32);
+  const doc = base({ approved: { by: 'director', directive: 'TC-DASH-010', at: T(30), source: { ref: '원문', sha256: sha } } });
+  const mk = o => buildRoadmapView({ state: 'ok', projects: [{ id: 'demo', versions: [parseRoadmap(doc, 'demo', 'v001.json')] }] }, [], NOW, o).projects[0].approved;
+  assert.equal(mk(null).original.state, 'not_in_index');
+  assert.equal(mk(null).original_checked, false);
+  const idx = (content, s16) => ({ byDirective: new Map([['TC-DASH-010', { content, sha256: s16 }]]) });
+  assert.equal(mk(idx('matched', sha.slice(0, 16))).original_checked, true);
+  assert.equal(mk(idx('mismatch', sha.slice(0, 16))).original.state, 'mismatch');
+  assert.equal(mk(idx('matched', 'cd'.repeat(8))).original.state, 'mismatch');
+  assert.equal(view([base()], []).approved.original.state, 'not_recorded');
 });

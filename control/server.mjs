@@ -404,11 +404,12 @@ export function createApp(cfg = configFromEnv()) {
     }
     // TC-DASH-010: director-approved project roadmap, with the linked cards shown beside it (never changing it)
     if (p === '/api/roadmap') {
-      const [read, cards, signed] = await Promise.all([
+      const [read, cards, signed, originals] = await Promise.all([
         readRoadmaps(cfg.demo ? null : cfg.handoffDir), readCards(cfg.demo ? null : cfg.handoffDir),
         readSignedWork(cfg.demo ? null : cfg.workActivityDir, path.join(ROOT, 'data', 'work-public.pem')),
+        directorOriginals(cfg.demo ? null : cfg.directorDir),
       ]);
-      return send(req, res, 200, { served_at: new Date().toISOString(), ...buildRoadmapView(read, [...cards.items, ...signed.items], Date.now()) });
+      return send(req, res, 200, { served_at: new Date().toISOString(), ...buildRoadmapView(read, [...cards.items, ...signed.items], Date.now(), originals) });
     }
     if (p === '/api/nas') {
       return send(req, res, 200, publicNas(await nasClues(cfg.demo ? null : cfg.nas)));

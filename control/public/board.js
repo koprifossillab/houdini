@@ -236,7 +236,7 @@ function roadmap(v) {
     const c = p.counts;
     v.append(
       h('section', { class: 'card' }, h('span', { class: 'lbl', text: '프로젝트 · 목표' }), h('h1', { text: p.project.name }), h('p', { class: 'lead', text: p.project.goal }),
-        h('span', { class: 'ev', text: `로드맵 v${p.version} · 감독 승인 ${p.approved.directive} · 승인 시각 ${p.approved.at ? when(p.approved.at, p.approved.at_precision) : '미기록'}${p.approved.transcribed_by ? ` · ${p.approved.transcribed_by} 전사 ${when(p.approved.transcribed_at)}` : ''} · ${p.approved.original_checked ? '원문 SHA 대조됨' : '원문 대조 전'} · 근거 ${p.approved.source.ref}` })),
+        h('span', { class: 'ev', text: `로드맵 v${p.version} · 감독 승인 ${p.approved.directive} · 승인 시각 ${p.approved.at ? when(p.approved.at, p.approved.at_precision) : '미기록'}${p.approved.transcribed_by ? ` · ${p.approved.transcribed_by} 전사 ${when(p.approved.transcribed_at)}` : ''} · ${p.approved.original?.label || '원문 대조 전'} · 근거 ${p.approved.source.ref}` })),
       h('section', { class: 'g4' },
         h('article', { class: 'card' }, h('span', { class: 'lbl', text: '전체 단계' }), h('span', { class: 'n', text: String(c.total) }), h('span', { class: 'ev', text: p.current_stage ? `현재 ${p.current_stage.no}단계 · ${p.current_stage.name}` : '진행 중인 단계 없음' })),
         h('article', { class: 'card' }, h('span', { class: 'lbl', text: '완료' }), h('span', { class: 'n', text: String(c.done) }), h('span', { class: 'ev', text: '감독 승인 로드맵 기준' })),

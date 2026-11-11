@@ -59,7 +59,7 @@ export function parseRoadmap(doc, project, file) {
   const ap = doc.approved && typeof doc.approved === 'object' ? doc.approved : null;
   const approvedAt = iso(ap?.at);
   // only a director-approved plan that cites where the approval is (② QA REVIEW 1: source.ref required)
-  if (!ap || !approvedAt || ap.by !== 'director' || !(ap.source && typeof ap.source === 'object' && text(ap.source.ref, 160))) return null;
+  if (!ap || !approvedAt || ap.by !== 'director' || !(ap.source && typeof ap.source === 'object' && text(ap.source.ref, 160).trim())) return null;
   // ② QA REVIEW 2: the director's approval time and ④'s transcription time are different facts. A file written
   // before this rule has only `at`, written at transcription: it is read as the transcription time and the
   // approval time is "not recorded".
@@ -84,8 +84,9 @@ export function parseRoadmap(doc, project, file) {
       at: approvalAt, at_precision: ap.at_precision === 'date' ? 'date' : 'time',
       transcribed_by: text(ap.transcribed_by, 20) || null, transcribed_at: transcribedAt,
       recorded_at: transcribedAt || approvedAt,
-      source: { ref: text(ap.source.ref, 160), sha256: sha },
-      original_checked: !!sha },
+      source: { ref: text(ap.source.ref, 160).trim(), sha256: sha },
+      // set by buildRoadmapView against the director originals list (INDEX); a SHA written here is only a claim
+      original: { state: sha ? 'unchecked' : 'not_recorded' }, original_checked: false },
     stages, tasks,
     priority: list(doc.priority, 6, x => (TASK_ID.test(String(x)) ? x : null)),
     next_steps: list(doc.next_steps, 8, x => text(x, 200)),
@@ -142,11 +143,23 @@ function evidenceFor(task, cards, recordedAt, now) {
   };
 }
 
-export function buildRoadmapView(read, cards = [], now = Date.now()) {
+// ② QA 재확인(c445b25) 잔여 1: "원문 대조됨" only when the director originals list has this directive, its file
+// content matched the list, and the roadmap's SHA equals the listed one (SHA match proves content, not identity).
+export const ORIGINAL_LABEL = { not_recorded: '원문 SHA 미기재 — 원문 대조 전', not_in_index: '원문 SHA 기재 · 원문 목록에 없음 — 대조 전', mismatch: '원문 SHA 불일치 — 대조 실패', matched: '원문 목록과 SHA 일치 (내용 일치 · 신원 증명 아님)', unchecked: '원문 대조 전' };
+function originalOf(approved, originals) {
+  if (!approved.source.sha256) return 'not_recorded';
+  const o = originals?.byDirective?.get?.(approved.directive);
+  if (!o) return 'not_in_index';
+  return o.content === 'matched' && o.sha256 === approved.source.sha256 ? 'matched' : 'mismatch';
+}
+
+export function buildRoadmapView(read, cards = [], now = Date.now(), originals = null) {
   if (read.state !== 'ok') return { state: read.state, message: read.message, projects: [] };
   const projects = read.projects.map(p => {
     const versions = p.versions.slice().sort((a, b) => a.version - b.version);
-    const cur = versions.at(-1);
+    const cur0 = versions.at(-1);
+    const ost = originalOf(cur0.approved, originals);
+    const cur = { ...cur0, approved: { ...cur0.approved, original: { state: ost, label: ORIGINAL_LABEL[ost] }, original_checked: ost === 'matched' } };
     const count = s => cur.stages.filter(x => x.status === s).length;
     const current = cur.stages.find(s => s.status === 'in_progress') || null;
     const tasks = cur.tasks.map(t => ({ ...t, evidence: evidenceFor(t, cards, cur.approved.recorded_at, now) }));
