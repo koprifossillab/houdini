@@ -28,7 +28,10 @@ export const CANDIDATE_STATUS = ['baseline', 'backup', 'candidate', 'rejected', 
 export const METHODS = ['self', 'signed', 'transcribed'];
 const EVIDENCE_KINDS = ['report', 'verdict', 'file', 'nas', 'decision', 'commit', 'work_event'];
 const FILE = /^[\w.-]{1,120}\.json$/;
-const TASK = /^TC-[0-9A-Z]{2,5}-\d{3}[A-Za-z0-9]{0,3}$/;
+// task number: TC-<2–12 capitals or digits>-<3 digits>[up to 3 letters]. The prefix was 2–5 (TC-VIS, TC-DASH), which
+// silently dropped TC-HANDOFF-002 (② QA TC-DASH-010 v4 보충, TC-DASH-011 B). One pattern, used by every reader.
+export const TASK_SRC = 'TC-[0-9A-Z]{2,12}-\\d{3}[A-Za-z0-9]{0,3}';
+export const TASK = new RegExp(`^${TASK_SRC}$`);
 export const DIRECTIVE = /^TC-[0-9A-Z]{2,8}(?:-[0-9A-Z]{1,8}){0,3}$/;
 const CARD_LIMIT = 64 * 1024;
 const MAX_FILES = 400;

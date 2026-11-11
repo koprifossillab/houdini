@@ -14,6 +14,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { clean, readBounded } from './sanitize.mjs';
+import { TASK_SRC } from './handoff.mjs';
 
 // TC-DASH-005: the director originals folder is never part of the clue search, whatever its name pattern.
 // Excluded by fixed name, by any name containing DIRECTOR_DECISIONS, by extra names from the config, and by
@@ -36,7 +37,7 @@ const CACHE_MS = 60000;
 const DOC_EXT = new Set(['.md', '.txt']);
 const IMG_EXT = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg' };
 const SHA_LIST = /^(?:RAW_)?SHA256(?:SUMS|_FILES)?\.txt$|^RAW_SHA256(?:_FILES)?\.txt$/;
-const TASK_ID = /\bTC-[0-9A-Z]{2,5}-\d{3}[A-Za-z0-9]{0,3}\b/g;
+const TASK_ID = new RegExp(`\\b${TASK_SRC}\\b`, 'g');
 
 // Order matters: the most specific suffix wins. Labels say what the name SUGGESTS, never what is proven.
 export const CLUES = [

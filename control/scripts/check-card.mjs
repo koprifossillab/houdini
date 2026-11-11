@@ -4,9 +4,9 @@
 // Exit code 0 = every card would be shown; 1 = at least one card would be refused.
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { parseCard, TEAMS, NO_ACTION } from '../lib/handoff.mjs';
+import { parseCard, TEAMS, NO_ACTION, TASK, TASK_SRC } from '../lib/handoff.mjs';
 
-const NAME = /^\d{8}-\d{4}_TC-[0-9A-Z]{2,5}-\d{3}[A-Za-z0-9]{0,3}\.json$/;
+const NAME = new RegExp(`^\\d{8}-\\d{4}_${TASK_SRC}\\.json$`);
 let bad = 0;
 for (const file of process.argv.slice(2)) {
   const team = path.basename(path.dirname(file));
@@ -21,7 +21,7 @@ for (const file of process.argv.slice(2)) {
     const why = [];
     if (doc?.schema !== 'tc-handoff/1') why.push('schema 가 tc-handoff/1 이 아님');
     if (doc?.team !== team) why.push(`team(${doc?.team}) 과 폴더(${team}) 가 다름`);
-    if (!/^TC-[0-9A-Z]{2,5}-\d{3}[A-Za-z0-9]{0,3}$/.test(String(doc?.task_id || ''))) why.push('task_id 형식 오류 (예: TC-VIS-030)');
+    if (!TASK.test(String(doc?.task_id || ''))) why.push('task_id 형식 오류 (예: TC-VIS-030)');
     if (!['in_progress', 'handed_off', 'blocked', 'done'].includes(doc?.state)) why.push('state 는 in_progress · handed_off · blocked · done 중 하나');
     if (!Number.isFinite(Date.parse(doc?.at))) why.push('at 시각 없음·형식 오류');
     if (doc?.author?.method === 'transcribed') why.push('전사 카드는 author.transcribed_from 에 원문 위치(ref)와 원문 시각(at)을 직접 적어야 함 — 근거·카드 시각으로 대신하지 않음');

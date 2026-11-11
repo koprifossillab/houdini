@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { tmp, serve } from './helpers.mjs';
 import { readRoadmaps, buildRoadmapView, parseRoadmap } from '../lib/roadmap.mjs';
-import { readCards } from '../lib/handoff.mjs';
+import { readCards, TASK } from '../lib/handoff.mjs';
 
 const NOW = Date.parse('2026-11-11T01:00:00Z');
 const T = m => new Date(NOW - m * 60000).toISOString();
@@ -229,8 +229,11 @@ test('R18 (v4 지시 2항) four separate states per task; ok on the QA or visual
   const axes = { director: { tone: 'ok', text: '승인' }, production: { tone: 'fail', text: '자체 검사 FAIL' }, qa: { tone: 'ok', text: '쓴 사람이 ok 라고 적음' }, visual: { tone: 'ok', text: '쓴 사람이 ok 라고 적음' } };
   const doc = base({ tasks: [
     { id: 'A', name: 'PASS 기록 없음', stage: 2, status: 'in_progress', axes },
-    { id: 'B', name: '기술 PASS 만', stage: 2, status: 'in_progress', axes, verdicts: [{ scope: 'technical', value: 'PASS' }, { scope: 'visual', value: 'REVIEW' }] },
-    { id: 'C', name: '둘 다 PASS', stage: 2, status: 'in_progress', axes, verdicts: [{ scope: 'technical', value: 'PASS' }, { scope: 'visual', value: 'PASS' }] },
+    { id: 'B', name: 'QA 기술 PASS 만', stage: 2, status: 'in_progress', axes, verdicts: [{ scope: 'technical', value: 'PASS', by: 'TC-QA' }, { scope: 'visual', value: 'REVIEW' }] },
+    { id: 'C', name: '둘 다 PASS', stage: 2, status: 'in_progress', axes, verdicts: [{ scope: 'technical', value: 'PASS', by: 'TC-QA' }, { scope: 'visual', value: 'PASS' }] },
+    { id: 'F', name: '① 가 낸 기술 PASS', stage: 2, status: 'in_progress', axes, verdicts: [{ scope: 'technical', value: 'PASS', by: 'TC-PROD' }] },
+    { id: 'G', name: '발행 팀 없는 기술 PASS (v4 형식)', stage: 2, status: 'in_progress', axes, verdicts: [{ scope: 'technical', value: 'PASS' }] },
+    { id: 'H', name: '① 자체 검사 PASS', stage: 2, status: 'in_progress', axes, verdicts: [{ scope: 'selfcheck', value: 'PASS', by: 'TC-QA' }] },
     { id: 'D', name: '이전 판', stage: 2, status: 'planned' },
     { id: 'E', name: '모르는 값', stage: 2, status: 'planned', axes: { director: { tone: 'done', text: 'x' } } },
   ] });
@@ -243,6 +246,9 @@ test('R18 (v4 지시 2항) four separate states per task; ok on the QA or visual
   assert.equal(t('A').visual.tone, 'wait');
   assert.equal(t('B').qa.tone, 'ok'); assert.equal(t('B').visual.tone, 'wait');
   assert.equal(t('C').qa.tone, 'ok'); assert.equal(t('C').visual.tone, 'ok');
+  // TC-DASH-011 A: only a technical PASS issued by ② QA fills the QA axis
+  for (const id of ['F', 'G', 'H']) { assert.equal(t(id).qa.tone, 'wait', id); assert.equal(t(id).qa.downgraded, true, id); }
+  assert.equal(p.tasks.find(x => x.id === 'F').verdicts[0].by_label, '① PROD');
   assert.equal(t('D'), null);
   assert.equal(t('E').director.tone, 'none');
 });
@@ -281,17 +287,36 @@ test('R19 (v4 지시 3항) at a glance: stage, work in progress, FAIL·REVIEW·h
   assert.equal(g2.last.card.ev_state, 'stale');
 });
 
-test('R20 the registered v004 parses, keeps FAIL·REVIEW as they are, and its QA/visual axes are never ok without a PASS', async () => {
-  const f = path.join(process.env.HOME || '', 'tc_handoff/ROADMAP/thermal-collapse/v004.json');
-  let doc; try { doc = JSON.parse(await fs.readFile(f, 'utf8')); } catch { return; } // only where the file exists
-  const r = parseRoadmap(doc, 'thermal-collapse', 'v004.json');
-  assert.ok(r);
-  for (const t of r.tasks) {
-    if (!t.axes) continue;
-    assert.ok(!Object.values(t.axes).some(a => a.downgraded), `${t.id} axis written ok without a PASS`);
-    if (t.verdicts.some(v => v.value === 'FAIL')) assert.notEqual(t.status, 'done');
-    if (t.axes.visual.tone === 'ok') assert.ok(t.verdicts.some(v => v.scope === 'visual' && v.value === 'PASS'));
+test('R20 every registered version: the QA axis reads 충족 only with a ② QA technical PASS, a FAIL task is never done', async () => {
+  const dir = path.join(process.env.HOME || '', 'tc_handoff/ROADMAP/thermal-collapse');
+  let files; try { files = (await fs.readdir(dir)).filter(f => /^v\d{3}\.json$/.test(f)); } catch { return; } // only where the folder exists
+  for (const f of files) {
+    const r = parseRoadmap(JSON.parse(await fs.readFile(path.join(dir, f), 'utf8')), 'thermal-collapse', f);
+    assert.ok(r, f);
+    for (const t of r.tasks) {
+      if (t.verdicts.some(v => v.value === 'FAIL')) assert.notEqual(t.status, 'done', `${f} ${t.id}`);
+      if (!t.axes) continue;
+      if (t.axes.qa.tone === 'ok') assert.ok(t.verdicts.some(v => v.scope === 'technical' && v.value === 'PASS' && v.by === 'TC-QA'), `${f} ${t.id}`);
+      if (t.axes.visual.tone === 'ok') assert.ok(t.verdicts.some(v => v.scope === 'visual' && v.value === 'PASS'), `${f} ${t.id}`);
+    }
   }
-  assert.ok(r.tasks.find(t => t.id === 'P0-6'));
-  assert.equal(r.tasks.find(t => t.id === 'P0-4').axes.production.tone, 'fail');
+});
+
+test('R21 (TC-DASH-011 B) task numbers with a longer prefix (TC-HANDOFF-002) are read; malformed ones are still refused', () => {
+  for (const ok of ['TC-VIS-030', 'TC-DASH-010', 'TC-HANDOFF-002', 'TC-VIS-029a']) assert.ok(TASK.test(ok), ok);
+  for (const no of ['TC-V-030', 'TC-VIS-30', 'TC-ABCDEFGHIJKLM-001', 'tc-vis-030', 'TC-VIS-030-1', 'TC-HAND_OFF-002']) assert.ok(!TASK.test(no), no);
+  const doc = base({ tasks: [{ id: 'H', name: '인계 형식', stage: 2, status: 'planned', links: { task_ids: ['TC-HANDOFF-002', 'TC-BAD-1'] } }] });
+  assert.deepEqual(parseRoadmap(doc, 'demo', 'v001.json').tasks[0].links.task_ids, ['TC-HANDOFF-002']);
+});
+
+test('R22 (TC-DASH-011 B) the card reader takes a TC-HANDOFF card and still refuses a malformed number', async t => {
+  const dir = await tmp(t);
+  await fs.mkdir(path.join(dir, 'TC-QA'), { recursive: true });
+  const c = (id, at) => ({ schema: 'tc-handoff/1', team: 'TC-QA', task_id: id, title: 't', state: 'done', verdict: null, verdict_scope: null, candidate: null, to: null, user_action: null, done: 'd', next: 'n', evidence: [{ kind: 'file', ref: 'r' }], author: { method: 'self' }, at });
+  await fs.writeFile(path.join(dir, 'TC-QA', '20261110-1629_TC-HANDOFF-002.json'), JSON.stringify(c('TC-HANDOFF-002', '2026-11-10T16:29:00+09:00')));
+  await fs.writeFile(path.join(dir, 'TC-QA', '20261110-1630_TC-VIS-030.json'), JSON.stringify(c('TC-VIS-030', '2026-11-10T16:30:00+09:00')));
+  await fs.writeFile(path.join(dir, 'TC-QA', '20261110-1631_TC-V-1.json'), JSON.stringify(c('TC-V-1', '2026-11-10T16:31:00+09:00')));
+  const r = await readCards(dir);
+  assert.deepEqual(r.items.map(x => x.task_id).sort(), ['TC-HANDOFF-002', 'TC-VIS-030']);
+  assert.equal(r.invalid, 1);
 });

@@ -215,7 +215,7 @@ function verdictCell(t) {
   const e = t.evidence;
   const vs = e?.verdicts || [];
   return h('span', { class: 'stack' },
-    t.verdicts?.length ? h('span', {}, h('span', { class: 'lbl', text: '로드맵 기재 ' }), t.verdicts.map(x => `${x.scope_label} ${x.value_label}`).join(' · ')) : null,
+    t.verdicts?.length ? h('span', {}, h('span', { class: 'lbl', text: '로드맵 기재 ' }), t.verdicts.map(x => `${x.scope_label} ${x.value_label}${x.by_label ? ` (${x.by_label})` : ''}`).join(' · ')) : null,
     h('span', { class: 'lbl', text: '카드 판정' }),
     vs.length ? h('span', {}, vs.map(x => verdict(x.verdict, null)).flatMap((b, i) => [b, ` ${vs[i].scope_label} `])) : h('span', { class: 'ev', text: '판정 카드 없음' }),
     vs.some(x => x.scope === 'technical' && x.verdict === 'PASS') && !e.visual_verdict ? h('span', { class: 'ev', text: '카드에 시각 판정 없음 — 기술 검증 결과일 뿐, 완료 아님' }) : null,
@@ -228,7 +228,7 @@ function axesCell(t) {
   return h('span', { class: 'stack' }, Object.values(t.axes).map(a => h('span', {},
     h('span', { class: 'lbl', text: `${a.label} ` }), h('span', { class: `b lv lv-${ATONE[a.tone] || 'unk'}`, text: a.tone_label }), a.text ? ` ${a.text}` : '',
     a.basis ? h('span', { class: 'ev', text: ` · 근거 ${a.basis}` }) : null,
-    a.downgraded ? h('span', { class: 'ev warnline', text: ' · 로드맵에 PASS 판정 기록이 없어 대기로 표시' }) : null)));
+    a.downgraded ? h('span', { class: 'ev warnline', text: a === t.axes.qa ? ' · 로드맵에 ② QA 가 낸 기술 PASS 기록이 없어 대기로 표시' : ' · 로드맵에 시각 PASS 기록이 없어 대기로 표시' }) : null)));
 }
 const tl = x => `${x.id} ${x.name}${x.team_label ? ` · 담당 ${x.team_label}` : ''}`;
 function glanceCard(p) {

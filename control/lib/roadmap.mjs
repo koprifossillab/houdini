@@ -15,6 +15,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { clean, iso, readBounded } from './sanitize.mjs';
+import { TASK } from './handoff.mjs';
 
 export const STAGE_STATES = { done: '완료', in_progress: '진행', waiting: '대기' };
 // team_wait: approved by the director but no evidence yet that the team started (director 2026-11-11: approval ≠ work)
@@ -57,7 +58,7 @@ function parseTask(t) {
     depends_on: list(t.depends_on, 8, x => (TASK_ID.test(String(x)) ? x : null)),
     // candidates: exact names, or a prefix ending in * ("v030-4*"); include_unassigned: also the task's cards that
     // name no candidate (shared analysis). Lets two tasks of one task number keep their evidence apart (② QA 7339370).
-    links: { task_ids: list(links.task_ids, 6, x => (/^TC-[0-9A-Z]{2,5}-\d{3}[A-Za-z0-9]{0,3}$/.test(String(x)) ? x : null)), candidates: list(links.candidates, 6, x => text(x, 60)),
+    links: { task_ids: list(links.task_ids, 6, x => (TASK.test(String(x)) ? x : null)), candidates: list(links.candidates, 6, x => text(x, 60)),
       include_unassigned: links.include_unassigned === true },
     // a schedule is shown only together with its basis
     schedule: t.schedule && typeof t.schedule === 'object' && t.schedule.basis ? { text: text(t.schedule.text, 80), basis: text(t.schedule.basis, 160) } : null,
@@ -67,7 +68,9 @@ function parseTask(t) {
       ? { item: text(d.item, 40), decision: d.decision, decision_label: DECISIONS[d.decision], work: text(d.work, 200) || '착수 근거 없음', basis: text(d.basis, 160),
           card: /^TC-(PROD|QA|WORK|DASH)\/[\w.-]{1,120}\.json$/.test(String(d.card || '')) ? d.card : null } : null)),
     verdicts: list(t.verdicts, 6, v => (v && typeof v === 'object' && Object.hasOwn(SCOPES, v.scope) && Object.hasOwn(RM_VERDICTS, v.value)
-      ? { scope: v.scope, scope_label: SCOPES[v.scope], value: v.value, value_label: RM_VERDICTS[v.value], basis: text(v.basis, 160) } : null)),
+      // by = the team that issued the verdict (TC-DASH-011 A: the QA axis counts only a PASS issued by ② QA)
+      ? { scope: v.scope, scope_label: SCOPES[v.scope], value: v.value, value_label: RM_VERDICTS[v.value], basis: text(v.basis, 160),
+          by: Object.hasOwn(TEAMS, v.by) ? v.by : null, by_label: TEAMS[v.by] || null } : null)),
     basis: text(t.basis, 200),
     blocked_by: text(t.blocked_by, 200) || null,
     approval_needed: list(t.approval_needed, 6, a => (a && typeof a === 'object' && Object.hasOwn(WHO, a.who) && text(a.what, 160)
@@ -78,16 +81,17 @@ function parseTask(t) {
 }
 
 // "FAIL·REVIEW·보류를 임의로 PASS나 완료로 바꾸지 마십시오": the QA axis may read 충족 only when the roadmap records a
-// technical PASS, the visual axis only with a visual PASS; anything else written as ok is shown as 대기.
+// technical PASS issued by ② QA (by: TC-QA — a team's own self-check never fills the QA axis, TC-DASH-011 A),
+// the visual axis only with a visual PASS; anything else written as ok is shown as 대기.
 function parseAxes(a, verdicts) {
   if (!a || typeof a !== 'object') return null;
-  const has = (scope, value) => verdicts.some(v => v.scope === scope && v.value === value);
+  const has = (scope, value, by) => verdicts.some(v => v.scope === scope && v.value === value && (!by || v.by === by));
   const out = {};
   for (const k of Object.keys(AXES)) {
     const x = a[k];
     if (!x || typeof x !== 'object' || !Object.hasOwn(AXIS_TONES, x.tone)) { out[k] = { tone: 'none', tone_label: '기재 없음', text: '', basis: '', label: AXES[k] }; continue; }
     let tone = x.tone;
-    if (tone === 'ok' && k === 'qa' && !has('technical', 'PASS')) tone = 'wait';
+    if (tone === 'ok' && k === 'qa' && !has('technical', 'PASS', 'TC-QA')) tone = 'wait';
     if (tone === 'ok' && k === 'visual' && !has('visual', 'PASS')) tone = 'wait';
     out[k] = { label: AXES[k], tone, tone_label: AXIS_TONES[tone], text: text(x.text, 200), basis: text(x.basis, 160), downgraded: tone !== x.tone };
   }
