@@ -201,6 +201,9 @@ test('R15 two tasks of one task number keep their evidence apart (candidate pref
   // without the flag, a task with no candidates keeps the old behaviour (all cards of the task number)
   const old = view([base({ tasks: [{ id: 'Q', name: 'q', stage: 2, status: 'planned', links: { task_ids: ['TC-VIS-030'] } }] })], cards).tasks[0];
   assert.equal(old.evidence.fails.length, 1);
+  // a task bound to candidates does not take candidate-less cards unless asked to
+  const bound = view([base({ tasks: [{ id: 'B', name: 'b', stage: 2, status: 'planned', links: { task_ids: ['TC-VIS-030'], candidates: ['v030-9*'] } }] })], cards).tasks[0];
+  assert.equal(bound.evidence.state, 'none');
 });
 
 test('R16 director decisions on sub-items are shown with what the team actually did; approval alone is "제작팀 착수 대기"', () => {
