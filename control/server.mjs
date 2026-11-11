@@ -20,6 +20,7 @@ import { nasClues, nasImage, publicNas } from './lib/nas.mjs';
 import { buildLive, readCorrections } from './lib/live.mjs';
 import { readPcRuns } from './lib/pcrun.mjs';
 import { publicLive, publicBoard, publicSession } from './lib/public.mjs';
+import { readRoadmaps, buildRoadmapView } from './lib/roadmap.mjs';
 import { buildBoard } from './lib/board.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -140,7 +141,7 @@ export function computeState(snap) {
   return { physics, activity, blender_queue, observed_at: snap.generated_at, fresh };
 }
 
-const ROUTES = [[/^\/healthz$/, 'healthz'], [/^\/(?:index\.html)?$/, 'page'], [/^\/static\/[\w.-]+$/, 'static'], [/^\/(?:legacy\.html)$/, 'legacy'], [/^\/api\/(session|overview|reports|experiments|media|teams|board|nas|live)$/, 'api/$1'], [/^\/nasimg\/[a-f0-9]{16}$/, 'nasimg'], [/^\/api\/reports\/[a-f0-9]{16}$/, 'api/report'], [/^\/media\/[a-z0-9_-]{1,60}$/, 'media']];
+const ROUTES = [[/^\/healthz$/, 'healthz'], [/^\/(?:index\.html)?$/, 'page'], [/^\/static\/[\w.-]+$/, 'static'], [/^\/(?:legacy\.html)$/, 'legacy'], [/^\/api\/(session|overview|reports|experiments|media|teams|board|nas|live|roadmap)$/, 'api/$1'], [/^\/nasimg\/[a-f0-9]{16}$/, 'nasimg'], [/^\/api\/reports\/[a-f0-9]{16}$/, 'api/report'], [/^\/media\/[a-z0-9_-]{1,60}$/, 'media']];
 export function routeId(raw) {
   let p = String(raw || '').split('?')[0];
   p = p.replace(/^\/Houdini(?=\/|$)/, '') || '/';
@@ -400,6 +401,14 @@ export function createApp(cfg = configFromEnv()) {
         return res.end();
       }
       return send(req, res, 200, l.body, 'application/json; charset=utf-8', { ...hdr, 'Cache-Control': 'no-cache' });
+    }
+    // TC-DASH-010: director-approved project roadmap, with the linked cards shown beside it (never changing it)
+    if (p === '/api/roadmap') {
+      const [read, cards, signed] = await Promise.all([
+        readRoadmaps(cfg.demo ? null : cfg.handoffDir), readCards(cfg.demo ? null : cfg.handoffDir),
+        readSignedWork(cfg.demo ? null : cfg.workActivityDir, path.join(ROOT, 'data', 'work-public.pem')),
+      ]);
+      return send(req, res, 200, { served_at: new Date().toISOString(), ...buildRoadmapView(read, [...cards.items, ...signed.items], Date.now()) });
     }
     if (p === '/api/nas') {
       return send(req, res, 200, publicNas(await nasClues(cfg.demo ? null : cfg.nas)));

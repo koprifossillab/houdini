@@ -49,7 +49,7 @@ const stepBadge = st => (st.kind === 'verdict' ? verdict(st.value, st.scope) : s
 const lastCard = l => (l ? h('span', { class: 'badges' }, state(l.state), l.verdict ? verdict(l.verdict, l.verdict_scope) : null) : state('none'));
 const empty = text => h('div', { class: 'empty', text });
 
-let board = null, teamsApi = null, overview = null, nas = null, picked = null, failed = false;
+let board = null, teamsApi = null, overview = null, nas = null, roadmapApi = null, picked = null, failed = false;
 async function getJson(url) { const r = await fetch(url, { cache: 'no-store', credentials: 'same-origin' }); if (!r.ok) throw Error(String(r.status)); return r.json(); }
 
 async function load() {
@@ -58,6 +58,7 @@ async function load() {
     board = await getJson('api/board');
     // token use / cost (USD · KRW) is shown on home and tech, so the team API is read on every refresh
     teamsApi = await getJson('api/teams').catch(() => teamsApi);
+    if (route === 'roadmap') roadmapApi = await getJson('api/roadmap').catch(() => roadmapApi);
     if (route === 'tech' || route === 'data') {
       [overview, nas] = await Promise.all([getJson('api/overview').catch(() => null), getJson('api/nas').catch(() => null)]);
     }
@@ -66,7 +67,7 @@ async function load() {
   render();
 }
 
-const currentRoute = () => (['home', 'teams', 'issues', 'review', 'tech', 'data'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home');
+const currentRoute = () => (['home', 'roadmap', 'teams', 'issues', 'review', 'tech', 'data'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home');
 function render() {
   const route = currentRoute();
   document.querySelectorAll('[data-route]').forEach(a => a.classList.toggle('on', a.dataset.route === route));
@@ -77,7 +78,7 @@ function render() {
   const v = $('view');
   v.replaceChildren();
   if (!board) { v.append(empty('자료를 불러오지 못했습니다.')); return; }
-  ({ home, teams, issues, review, tech, data })[route](v);
+  ({ home, roadmap, teams, issues, review, tech, data })[route](v);
   if (route !== 'home') window.scrollTo(0, 0);
 }
 
@@ -197,6 +198,70 @@ function home(v) {
     // every source has a label; the provenance tally is not a source (it was printed as "undefined …")
     h('span', { class: 'ev', text: Object.entries(b.sources).filter(([k]) => SOURCE_LABEL[k]).map(([k, s]) => `${SOURCE_LABEL[k]} ${s.state}${s.count !== undefined ? ` (${s.count})` : ''}`).join(' · ') }),
     h('a', { href: '#tech', text: '기술 상세 →' })));
+}
+
+// ── TC-DASH-010 프로젝트 로드맵 — 단계·작업 상태는 감독 승인 로드맵 파일에서만, 카드는 옆에 근거로만 ─────────
+const RTONE = { done: 'ok', in_progress: 'info', waiting: 'unk', planned: 'unk', qa_wait: 'wait', director_wait: 'wait', user_wait: 'wait', blocked: 'bad', on_hold: 'unk' };
+const rb = (key, label) => h('span', { class: `b lv lv-${RTONE[key] || 'unk'}`, text: label });
+function evLine(e) {
+  if (!e || e.state === 'none') return h('span', { class: 'ev', text: e?.label || '근거 없음' });
+  const l = e.last;
+  return h('span', { class: 'stack' },
+    h('span', { class: 'ev' }, grade(e.grade), ` ${l.team} 카드 · ${when(l.at)}${l.verdict ? ` · ${l.verdict}${l.scope_label ? `(${l.scope_label})` : ''}` : ''}${l.to ? ` → ${l.to}` : ''}`),
+    e.state === 'stale' ? h('span', { class: 'ev warnline', text: `최근 2시간 안에 새 카드 없음 — 지금 상태 미확인 (마지막 근거 ${when(l.at)})` }) : null,
+    e.newer_than_roadmap ? h('span', { class: 'ev warnline', text: '로드맵보다 새 카드 있음 — 로드맵 갱신 검토 필요 (자동 반영 안 함)' }) : null);
+}
+function verdictCell(t) {
+  const e = t.evidence;
+  const vs = e?.verdicts || [];
+  return h('span', { class: 'stack' },
+    vs.length ? h('span', {}, vs.map(x => verdict(x.verdict, null)).flatMap((b, i) => [b, ` ${vs[i].scope_label} `])) : h('span', { class: 'ev', text: '판정 카드 없음' }),
+    vs.some(x => x.scope === 'technical' && x.verdict === 'PASS') && !e.visual_verdict ? h('span', { class: 'ev', text: '카드에 시각 판정 없음 — 기술 검증 결과일 뿐, 완료 아님' }) : null,
+    e?.fails?.length ? h('span', { class: 'ev', text: `FAIL 기록 ${e.fails.length}건 보존: ${e.fails.map(f => `${f.scope_label} · ${f.title}`).join(' / ')}` }) : null);
+}
+function taskRow(t) {
+  return h('tr', {},
+    h('td', {}, h('b', { text: t.id }), ` ${t.name}`, t.links.task_ids.length ? h('div', { class: 'ev mono', text: [...t.links.task_ids, ...t.links.candidates].join(' · ') }) : null),
+    h('td', { text: t.team_label || '—' }),
+    h('td', {}, h('span', { class: 'stack' }, rb(t.status, t.status_label), t.resolution_label ? h('span', { class: 'ev', text: `해결 여부: ${t.resolution_label}` }) : null,
+      t.hold ? h('span', { class: 'ev', text: `보류 사유: ${t.hold.reason} · 재개: ${t.hold.resume}` }) : null)),
+    h('td', { text: t.result || '—' }), h('td', {}, verdictCell(t)),
+    h('td', { text: t.next || '—' }), h('td', { text: t.done_when.join(' / ') || '—' }), h('td', { text: t.depends_on.join(', ') || '—' }),
+    h('td', {}, evLine(t.evidence), t.schedule ? h('span', { class: 'ev', text: `일정 ${t.schedule.text} (근거: ${t.schedule.basis})` }) : null));
+}
+function roadmap(v) {
+  if (!roadmapApi) { v.append(empty('로드맵을 불러오는 중이거나 불러오지 못했습니다.')); return; }
+  if (roadmapApi.state !== 'ok' || !roadmapApi.projects.length) { v.append(h('h1', { text: '프로젝트 로드맵' }), empty(roadmapApi.message || '등록된 로드맵 없음')); return; }
+  for (const p of roadmapApi.projects) {
+    const c = p.counts;
+    v.append(
+      h('section', { class: 'card' }, h('span', { class: 'lbl', text: '프로젝트 · 목표' }), h('h1', { text: p.project.name }), h('p', { class: 'lead', text: p.project.goal }),
+        h('span', { class: 'ev', text: `로드맵 v${p.version} · 감독 승인 ${p.approved.directive} · ${when(p.approved.at)}${p.approved.transcribed_by ? ` · ${p.approved.transcribed_by} 전사${p.approved.source?.sha256 ? '' : ' (원문 대조 전)'}` : ''}` })),
+      h('section', { class: 'g4' },
+        h('article', { class: 'card' }, h('span', { class: 'lbl', text: '전체 단계' }), h('span', { class: 'n', text: String(c.total) }), h('span', { class: 'ev', text: p.current_stage ? `현재 ${p.current_stage.no}단계 · ${p.current_stage.name}` : '진행 중인 단계 없음' })),
+        h('article', { class: 'card' }, h('span', { class: 'lbl', text: '완료' }), h('span', { class: 'n', text: String(c.done) }), h('span', { class: 'ev', text: '감독 승인 로드맵 기준' })),
+        h('article', { class: 'card' }, h('span', { class: 'lbl', text: '진행' }), h('span', { class: 'n', text: String(c.in_progress) })),
+        h('article', { class: 'card' }, h('span', { class: 'lbl', text: '대기' }), h('span', { class: 'n', text: String(c.waiting) }), h('span', { class: 'ev', text: '완료율은 계산하지 않음' }))),
+      h('section', { class: 'card' }, h('h2', { text: '단계별 진행' }),
+        h('div', { class: 'steps' }, p.stages.map(s => h('div', { class: `step${p.current_stage?.no === s.no ? ' cur' : ''}` }, h('span', { class: 'lbl', text: `${s.no}${p.current_stage?.no === s.no ? ' · 현재' : ''}` }), h('b', { text: s.name }), h('span', {}, rb(s.status, s.status_label)), h('span', { class: 'ev', text: `세부 ${s.task_count} · 완료 ${s.task_done}` })))),
+        h('span', { class: 'ev', text: '단계 상태는 감독이 승인한 로드맵 판에서만 바뀝니다. 인계 카드로 자동 완료하지 않습니다.' })),
+      h('section', { class: 'g2' },
+        h('article', { class: 'card' }, h('h2', { text: '현재 우선 작업' }), p.priority.length ? p.priority.map(t => h('div', { class: 'item' }, rb(t.status, t.status_label), h('div', { class: 'stack' }, h('b', { text: `${t.id} ${t.name}` }), h('span', { class: 'ev', text: t.result }), verdictCell(t)))) : empty('지정 없음')),
+        h('article', { class: 'card' }, h('h2', { text: '다음에 할 일' }), p.next_steps.length ? h('ol', {}, p.next_steps.map(x => h('li', { text: x }))) : empty('기재 없음')),
+        h('article', { class: 'card' }, h('h2', { text: '감독 승인 대기' }), p.waiting_director.length ? p.waiting_director.map(t => h('div', { class: 'item' }, rb(t.status, t.status_label), h('div', { class: 'stack' }, h('b', { text: `${t.id} ${t.name}` }), h('span', { class: 'ev', text: t.next })))) : empty('없음')),
+        h('article', { class: 'card' }, h('h2', { text: '최근 단계 변경과 근거' }),
+          p.changes.length ? p.changes.slice(-5).reverse().map(x => h('div', { class: 'ev', text: `v${x.version ?? '?'} · ${x.at ? when(x.at) : '시각 없음'} · ${x.what} — 근거 ${x.basis}` })) : empty('변경 기록 없음'),
+          p.review_needed.length ? h('span', { class: 'ev warnline', text: `로드맵보다 새 카드가 있는 작업: ${p.review_needed.join(', ')} — 감독 확인 전에는 반영하지 않음` }) : null,
+          h('span', { class: 'ev', text: `보존된 판: ${p.history.map(x => `v${x.version}`).join(' · ')}` }))),
+      h('section', { class: 'stack' }, h('h2', { text: '단계 · 세부 작업' }),
+        p.stages.map(s => {
+          const tasks = p.tasks.filter(t => t.stage === s.no);
+          const d = h('details', { class: 'card', open: p.current_stage?.no === s.no },
+            h('summary', {}, h('b', { text: `${s.no} · ${s.name} ` }), rb(s.status, s.status_label), h('span', { class: 'ev', text: `  세부 ${tasks.length}${s.exit.length ? ` · 완료 조건: ${s.exit.join(' / ')}` : ''}` })),
+            tasks.length ? h('div', { class: 'scroll' }, h('table', {}, h('thead', {}, h('tr', {}, ['작업', '담당', '상태', '현재 결과', '판정(범위별)', '다음 작업', '완료 조건', '선행', '마지막 근거 · 등급'].map(x => h('th', { text: x })))), h('tbody', {}, tasks.map(taskRow)))) : empty('세부 작업 없음'));
+          return d;
+        })));
+  }
 }
 
 function teamCard(t) {
@@ -341,7 +406,7 @@ function data(v) {
       h('pre', { class: 'card mono', text: '<인계 카드 폴더>/<팀>/<YYYYMMDD-HHMM>_<작업번호>.json   (덧붙이기만 · 고치거나 지우지 않음)\n{ "schema": "tc-handoff/1", "team": "TC-PROD | TC-QA | TC-WORK | TC-DASH", "task_id": "TC-VIS-030",\n  "title": "…", "state": "in_progress | handed_off | blocked | done",\n  "verdict": "PASS | FAIL | REVIEW | UNVERIFIED | null", "verdict_scope": "technical | visual | physics | selfcheck | run | null",\n  "candidate": "후보 이름 | null", "done": "완료한 작업", "next": "다음 작업", "to": "TC-PROD | TC-QA | TC-WORK | TC-DASH | director | user",\n  "user_action": "사용자 직접 조치 | null",\n  "evidence": [{ "kind": "report | nas | file | commit", "ref": "…", "sha256": "…(선택)", "at": "…(선택)" }],\n  "issues": [{ "id": "…", "title": "…", "scope": "project | candidate | track", "candidate": "…", "severity": "blocking | fail | review | known" }],\n  "author": { "method": "self | transcribed", "session": "세션 이름(선택)",\n              "transcribed_by": "전사한 팀", "transcribed_from": { "ref": "원문 위치", "at": "원문 시각" } },\n  "at": "2026-11-10T10:00:00+09:00" }\n  ※ "signed" 는 파일에 쓸 수 없음 — ③ 서명 Work 기록에서만 생김\n\n<판정 기록 폴더>/<id>.json  (④ 가 감독 지시문에서 전사 · source.ref 없으면 받지 않음)\n{ "schema": "tc-decision/1", "kind": "directive | approval | rejection | hold | closure | baseline | candidate_status",\n  "task_id": "…", "directive_id": "TC-DASH-005", "subject": "…", "at": "…", "source": { "ref": "감독 지시 번호 · 원문 보관 기록" } }\n\n감독 원문 목록 INDEX.json (대조 전용 · 화면에 내용 없음)\n{ "schema": "tc-director-index/1", "entries": [{ "directive_id": "TC-DASH-005", "file": "TC-DASH-005.md", "sha256": "…",\n  "source": "…", "written_at": "…", "checked_at": "…", "check_method": "user_confirmed | transcribed" }] }' })));
 }
 
-window.addEventListener('hashchange', () => { if (['tech', 'data'].includes(currentRoute()) && !overview) load(); else render(); });
+window.addEventListener('hashchange', () => { if ((['tech', 'data'].includes(currentRoute()) && !overview) || (currentRoute() === 'roadmap' && !roadmapApi)) load(); else render(); });
 fetch('api/session', { cache: 'no-store' }).then(r => r.json()).then(s => { $('version').textContent = s.local_detail ? `판 ${s.version} · 이 컴퓨터에서만 보이는 상세 화면` : `판 ${s.version}`; }).catch(() => {});
 load();
 setInterval(load, 30000);
