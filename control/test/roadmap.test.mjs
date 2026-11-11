@@ -249,6 +249,9 @@ test('R18 (v4 지시 2항) four separate states per task; ok on the QA or visual
   // TC-DASH-011 A: only a technical PASS issued by ② QA fills the QA axis
   for (const id of ['F', 'G', 'H']) { assert.equal(t(id).qa.tone, 'wait', id); assert.equal(t(id).qa.downgraded, true, id); }
   assert.equal(p.tasks.find(x => x.id === 'F').verdicts[0].by_label, '① PROD');
+  // an issuer outside the team list is dropped, not shown as written
+  const odd = parseRoadmap(base({ tasks: [{ id: 'Z', name: 'z', stage: 2, status: 'planned', verdicts: [{ scope: 'technical', value: 'PASS', by: '② QA 팀' }] }] }), 'demo', 'v001.json');
+  assert.equal(odd.tasks[0].verdicts[0].by, null);
   assert.equal(t('D'), null);
   assert.equal(t('E').director.tone, 'none');
 });
