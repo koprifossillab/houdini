@@ -19,7 +19,8 @@ import { clean, iso, readBounded } from './sanitize.mjs';
 export const STAGE_STATES = { done: '완료', in_progress: '진행', waiting: '대기' };
 // team_wait: approved by the director but no evidence yet that the team started (director 2026-11-11: approval ≠ work)
 export const TASK_STATES = { planned: '예정', team_wait: '제작팀 착수 대기', in_progress: '진행', qa_wait: 'QA 대기', director_wait: '감독 대기', user_wait: '사용자 대기', blocked: '차단', done: '완료', on_hold: '보류' };
-export const DECISIONS = { approved: '승인', rejected: '불승인', design_only: '설계만 승인', on_hold: '보류' };
+// design_approved = the design is approved (as the director wrote it); design_only = approval stops at the design
+export const DECISIONS = { approved: '승인', rejected: '불승인', design_approved: '설계 승인', design_only: '설계만 승인', on_hold: '보류' };
 export const RESOLUTION = { unresolved: '미해결', resolved: '해결' };
 // verdicts the ROADMAP itself records (the director's judgement), kept apart from verdicts found on cards
 export const RM_VERDICTS = { PASS: 'PASS', FAIL: 'FAIL', REVIEW: 'REVIEW', pending: '판정 전' };
@@ -58,7 +59,8 @@ function parseTask(t) {
     kind: text(t.kind, 40) || null,
     // director decisions on the sub-items of a task, each with what the team has actually done since (or not)
     decisions: list(t.decisions, 10, d => (d && typeof d === 'object' && Object.hasOwn(DECISIONS, d.decision)
-      ? { item: text(d.item, 40), decision: d.decision, decision_label: DECISIONS[d.decision], work: text(d.work, 200) || '착수 근거 없음', basis: text(d.basis, 160) } : null)),
+      ? { item: text(d.item, 40), decision: d.decision, decision_label: DECISIONS[d.decision], work: text(d.work, 200) || '착수 근거 없음', basis: text(d.basis, 160),
+          card: /^TC-(PROD|QA|WORK|DASH)\/[\w.-]{1,120}\.json$/.test(String(d.card || '')) ? d.card : null } : null)),
     verdicts: list(t.verdicts, 6, v => (v && typeof v === 'object' && Object.hasOwn(SCOPES, v.scope) && Object.hasOwn(RM_VERDICTS, v.value)
       ? { scope: v.scope, scope_label: SCOPES[v.scope], value: v.value, value_label: RM_VERDICTS[v.value], basis: text(v.basis, 160) } : null)),
     basis: text(t.basis, 200),
@@ -187,7 +189,9 @@ export function buildRoadmapView(read, cards = [], now = Date.now(), originals =
     const cur = { ...cur0, approved: { ...cur0.approved, original: { state: ost, label: ORIGINAL_LABEL[ost] }, original_checked: ost === 'matched' } };
     const count = s => cur.stages.filter(x => x.status === s).length;
     const current = cur.stages.find(s => s.status === 'in_progress') || null;
-    const tasks = cur.tasks.map(t => ({ ...t, evidence: evidenceFor(t, cards, cur.approved.recorded_at, now) }));
+    // a decision may cite its own card ("<team>/<file>"): shown with that card's time and grade, whatever the task links
+    const cardOf = ref => { const [team, file] = ref.split('/'); const c = cards.find(x => x.team === team && x.file === file); return c ? { team: TEAMS[c.team] || c.team, at: c.at, grade: c.grade, title: c.title } : { missing: true }; };
+    const tasks = cur.tasks.map(t => ({ ...t, decisions: t.decisions.map(d => (d.card ? { ...d, card_evidence: cardOf(d.card) } : d)), evidence: evidenceFor(t, cards, cur.approved.recorded_at, now) }));
     const curPhase = cur.phases.find(x => x.status === 'in_progress') || null;
     return {
       id: p.id, project: cur.project, version: cur.version, approved: cur.approved,

@@ -213,3 +213,14 @@ test('R16 director decisions on sub-items are shown with what the team actually 
   assert.equal(t.status_label, '제작팀 착수 대기');
   assert.deepEqual(t.decisions.map(d => `${d.item}:${d.decision_label}:${d.work}`), ['4a·4c:승인:후보 자체 검사 C4 FAIL', '4b:불승인:착수 근거 없음', '4d:설계만 승인:착수 근거 없음']);
 });
+
+test('R17 "설계 승인" is its own decision value; a decision can cite its card directly (shown even if the task links exclude it)', () => {
+  const doc = base({ tasks: [{ id: 'P0-5', name: '브레치아', stage: 2, status: 'director_wait', links: { task_ids: ['TC-VIS-030'], include_unassigned: true }, decisions: [
+    { item: '5b', decision: 'design_approved', work: '설계서 제출', card: 'TC-PROD/a.json' }, { item: '4d', decision: 'design_only', card: 'TC-PROD/none.json' }, { item: 'z', decision: 'approved', card: '../x.json' }] }] });
+  const t = view([doc], [card({ file: 'a.json', task_id: 'TC-VIS-030', candidate: 'v030-4a4c', at: T(20) })]).tasks[0];
+  assert.deepEqual(t.decisions.map(d => d.decision_label), ['설계 승인', '설계만 승인', '승인']);
+  assert.equal(t.decisions[0].card_evidence.at, T(20));
+  assert.equal(t.decisions[1].card_evidence.missing, true);
+  assert.equal(t.decisions[2].card, null, 'a path outside the team folders is refused');
+  assert.equal(t.evidence.state, 'none', 'the task evidence still follows the links');
+});

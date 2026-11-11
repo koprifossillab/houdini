@@ -227,7 +227,8 @@ function taskRow(t) {
     h('td', { class: 'nw', text: t.team_label || '—' }),
     h('td', {}, h('span', { class: 'stack' }, rb(t.status, t.status_label), t.resolution_label ? h('span', { class: 'ev', text: `해결 여부: ${t.resolution_label}` }) : null,
       t.hold ? h('span', { class: 'ev', text: `보류 사유: ${t.hold.reason} · 재개: ${t.hold.resume}` }) : null,
-      ...(t.decisions || []).map(d => h('span', { class: 'ev' }, h('b', { text: `${d.item} ` }), `감독 ${d.decision_label} — 작업: ${d.work}`)))),
+      ...(t.decisions || []).map(d => h('span', { class: 'ev' }, h('b', { text: `${d.item} ` }), `감독 ${d.decision_label} — 작업: ${d.work}`,
+        d.card_evidence ? (d.card_evidence.missing ? ' · 근거 카드 없음' : [' · 근거 ', grade(d.card_evidence.grade), ` ${d.card_evidence.team} ${when(d.card_evidence.at)}`]) : null)))),
     h('td', { text: t.result || '—' }), h('td', {}, verdictCell(t)),
     h('td', { text: t.next || '—' }), h('td', { text: t.done_when.join(' / ') || '—' }), h('td', { text: t.depends_on.join(', ') || '—' }),
     h('td', {}, evLine(t.evidence), t.schedule ? h('span', { class: 'ev', text: `일정 ${t.schedule.text} (근거: ${t.schedule.basis})` }) : null));
