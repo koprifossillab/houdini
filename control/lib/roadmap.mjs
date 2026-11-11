@@ -58,7 +58,14 @@ export function parseRoadmap(doc, project, file) {
   if (doc.version !== Number(m[1])) return null; // the file name and the version inside must agree
   const ap = doc.approved && typeof doc.approved === 'object' ? doc.approved : null;
   const approvedAt = iso(ap?.at);
-  if (!ap || !approvedAt || ap.by !== 'director') return null; // only a director-approved plan is a roadmap
+  // only a director-approved plan that cites where the approval is (② QA REVIEW 1: source.ref required)
+  if (!ap || !approvedAt || ap.by !== 'director' || !(ap.source && typeof ap.source === 'object' && text(ap.source.ref, 160))) return null;
+  // ② QA REVIEW 2: the director's approval time and ④'s transcription time are different facts. A file written
+  // before this rule has only `at`, written at transcription: it is read as the transcription time and the
+  // approval time is "not recorded".
+  const transcribedAt = iso(ap.transcribed_at) || (ap.transcribed_by ? approvedAt : null);
+  const approvalAt = ap.transcribed_at || !ap.transcribed_by ? approvedAt : null;
+  const sha = /^[a-f0-9]{64}$/.test(String(ap.source.sha256 || '')) ? ap.source.sha256.slice(0, 16) : null;
   const tasks = list(doc.tasks, 120, parseTask);
   const stages = list(doc.stages, 20, s => {
     if (!s || typeof s !== 'object' || !Number.isInteger(s.no)) return null;
@@ -71,8 +78,14 @@ export function parseRoadmap(doc, project, file) {
   return {
     file, version: doc.version, previous: Number.isInteger(doc.previous) ? doc.previous : null,
     project: { id: project, name: text(doc.project.name, 80), goal: text(doc.project.goal, 400) },
-    approved: { by: 'director', directive: text(ap.directive, 40), at: approvedAt, transcribed_by: text(ap.transcribed_by, 20) || null,
-      source: ap.source && typeof ap.source === 'object' ? { ref: text(ap.source.ref, 160), sha256: /^[a-f0-9]{64}$/.test(String(ap.source.sha256 || '')) ? ap.source.sha256.slice(0, 16) : null } : null },
+    // at = the director's approval (null = not recorded); recorded_at = when this version's content was fixed;
+    // original_checked = false means the screen says the original was not matched yet
+    approved: { by: 'director', directive: text(ap.directive, 40),
+      at: approvalAt, at_precision: ap.at_precision === 'date' ? 'date' : 'time',
+      transcribed_by: text(ap.transcribed_by, 20) || null, transcribed_at: transcribedAt,
+      recorded_at: transcribedAt || approvedAt,
+      source: { ref: text(ap.source.ref, 160), sha256: sha },
+      original_checked: !!sha },
     stages, tasks,
     priority: list(doc.priority, 6, x => (TASK_ID.test(String(x)) ? x : null)),
     next_steps: list(doc.next_steps, 8, x => text(x, 200)),
@@ -103,7 +116,7 @@ export async function readRoadmaps(handoffDir) {
 }
 
 // ── cards → per-task evidence (shown beside the roadmap state, never replacing it) ──────────────────────
-function evidenceFor(task, cards, approvedAt, now) {
+function evidenceFor(task, cards, recordedAt, now) {
   const { task_ids: ids, candidates: cands } = task.links;
   if (!ids.length) return { state: 'none', label: '연결된 인계 카드 없음 — 로드맵 기재 내용만', grade: 'claim' };
   // a card's candidate may carry a commit after the name ("p0r-A2 c3a97df"): match on the name only
@@ -115,16 +128,17 @@ function evidenceFor(task, cards, approvedAt, now) {
   const byScope = {};
   for (const c of mine) if (c.verdict && c.verdict_scope) byScope[c.verdict_scope] = { verdict: c.verdict, scope: c.verdict_scope, scope_label: SCOPES[c.verdict_scope] || c.verdict_scope, team: TEAMS[c.team] || c.team, at: c.at, title: c.title };
   const fails = mine.filter(c => c.verdict === 'FAIL').slice(-5).map(c => ({ scope_label: SCOPES[c.verdict_scope] || c.verdict_scope || '범위 없음', team: TEAMS[c.team] || c.team, at: c.at, title: c.title }));
+  const future = Date.parse(last.at) > now + 60000;
   const stale = now - Date.parse(last.at) > LIVE_MS;
   return {
-    state: stale ? 'stale' : 'live',
-    label: stale ? `최근 2시간 안에 새 카드 없음 — 지금 상태 미확인 (마지막 근거 ${last.at})` : '최근 카드 있음',
+    state: future ? 'future' : stale ? 'stale' : 'live',
+    label: future ? `미래 시각 카드 — 지금 상태 미확인 (${last.at})` : stale ? `최근 2시간 안에 새 카드 없음 — 지금 상태 미확인 (마지막 근거 ${last.at})` : '최근 카드 있음',
     last: { team: TEAMS[last.team] || last.team, at: last.at, state: last.state, verdict: last.verdict, scope_label: last.verdict_scope ? SCOPES[last.verdict_scope] : null, title: last.title, to: TEAMS[last.to] || null, grade: last.grade },
     verdicts: Object.values(byScope),
     visual_verdict: byScope.visual?.verdict || null,
     fails,
     grade: last.grade,
-    newer_than_roadmap: last.at > approvedAt,
+    newer_than_roadmap: last.at > recordedAt, // newer than this roadmap version's content
   };
 }
 
@@ -135,7 +149,7 @@ export function buildRoadmapView(read, cards = [], now = Date.now()) {
     const cur = versions.at(-1);
     const count = s => cur.stages.filter(x => x.status === s).length;
     const current = cur.stages.find(s => s.status === 'in_progress') || null;
-    const tasks = cur.tasks.map(t => ({ ...t, evidence: evidenceFor(t, cards, cur.approved.at, now) }));
+    const tasks = cur.tasks.map(t => ({ ...t, evidence: evidenceFor(t, cards, cur.approved.recorded_at, now) }));
     return {
       id: p.id, project: cur.project, version: cur.version, approved: cur.approved,
       counts: { total: cur.stages.length, done: count('done'), in_progress: count('in_progress'), waiting: count('waiting') },
@@ -147,7 +161,7 @@ export function buildRoadmapView(read, cards = [], now = Date.now()) {
       next_steps: cur.next_steps,
       review_needed: tasks.filter(t => t.evidence.newer_than_roadmap).map(t => t.id),
       changes: cur.changes,
-      history: versions.map(v => ({ version: v.version, file: v.file, approved_at: v.approved.at, directive: v.approved.directive })),
+      history: versions.map(v => ({ version: v.version, file: v.file, approved_at: v.approved.at, recorded_at: v.approved.recorded_at, directive: v.approved.directive })),
     };
   });
   return { state: 'ok', message: read.message, projects };

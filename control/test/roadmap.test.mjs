@@ -125,3 +125,31 @@ test('R9 /api/roadmap is read only and absent from the public projection', async
   const none = await serve(t, { handoffDir: await tmp(t) });
   assert.equal((await (await fetch(`${none}/Houdini/api/roadmap`)).json()).state, 'missing');
 });
+
+test('R10 (QA REVIEW 1) a roadmap without a cited source is refused; without a matched original it says so even when not transcribed', () => {
+  assert.equal(parseRoadmap(base({ approved: { by: 'director', at: T(30) } }), 'demo', 'v001.json'), null);
+  assert.equal(parseRoadmap(base({ approved: { by: 'director', at: T(30), source: {} } }), 'demo', 'v001.json'), null);
+  const r = parseRoadmap(base({ approved: { by: 'director', directive: 'D', at: T(30), source: { ref: '원문' } } }), 'demo', 'v001.json');
+  assert.equal(r.approved.original_checked, false);
+  const ok = parseRoadmap(base({ approved: { by: 'director', at: T(30), source: { ref: '원문', sha256: 'ab'.repeat(32) } } }), 'demo', 'v001.json');
+  assert.equal(ok.approved.original_checked, true);
+});
+
+test('R11 (QA REVIEW 2) approval time and transcription time are kept apart; "newer than the roadmap" uses the recorded time', () => {
+  const legacy = parseRoadmap(base(), 'demo', 'v001.json'); // transcribed_by with only `at` (written at transcription)
+  assert.equal(legacy.approved.at, null);
+  assert.equal(legacy.approved.transcribed_at, T(30));
+  const split = parseRoadmap(base({ approved: { by: 'director', at: '2026-11-11T00:00:00+09:00', at_precision: 'date', transcribed_by: 'TC-DASH', transcribed_at: T(30), source: { ref: 'r' } } }), 'demo', 'v001.json');
+  assert.equal(split.approved.at, '2026-11-10T15:00:00.000Z');
+  assert.equal(split.approved.at_precision, 'date');
+  assert.equal(split.approved.recorded_at, T(30));
+  const p = view([base()], [card({ candidate: 'p0r-A2', at: T(40) })]);
+  assert.equal(p.tasks.find(t => t.id === 'P0-2').evidence.newer_than_roadmap, false, 'a card before the recorded time is not newer');
+});
+
+test('R12 a card dated in the future is not shown as current evidence', () => {
+  const p = view([base()], [card({ candidate: 'p0r-A2', at: new Date(NOW + 3600e3).toISOString() })]);
+  const e = p.tasks.find(t => t.id === 'P0-2').evidence;
+  assert.equal(e.state, 'future');
+  assert.match(e.label, /미확인/);
+});

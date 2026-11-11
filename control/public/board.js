@@ -208,8 +208,8 @@ function evLine(e) {
   const l = e.last;
   return h('span', { class: 'stack' },
     h('span', { class: 'ev' }, grade(e.grade), ` ${l.team} 카드 · ${when(l.at)}${l.verdict ? ` · ${l.verdict}${l.scope_label ? `(${l.scope_label})` : ''}` : ''}${l.to ? ` → ${l.to}` : ''}`),
-    e.state === 'stale' ? h('span', { class: 'ev warnline', text: `최근 2시간 안에 새 카드 없음 — 지금 상태 미확인 (마지막 근거 ${when(l.at)})` }) : null,
-    e.newer_than_roadmap ? h('span', { class: 'ev warnline', text: '로드맵보다 새 카드 있음 — 로드맵 갱신 검토 필요 (자동 반영 안 함)' }) : null);
+    e.state === 'stale' || e.state === 'future' ? h('span', { class: 'ev warnline', text: e.state === 'future' ? `미래 시각 카드 — 지금 상태 미확인 (${when(l.at)})` : `최근 2시간 안에 새 카드 없음 — 지금 상태 미확인 (마지막 근거 ${when(l.at)})` }) : null,
+    e.newer_than_roadmap ? h('span', { class: 'ev warnline', text: '이 로드맵 판이 기록된 뒤의 카드 있음 — 로드맵 갱신 검토 필요 (자동 반영 안 함)' }) : null);
 }
 function verdictCell(t) {
   const e = t.evidence;
@@ -236,7 +236,7 @@ function roadmap(v) {
     const c = p.counts;
     v.append(
       h('section', { class: 'card' }, h('span', { class: 'lbl', text: '프로젝트 · 목표' }), h('h1', { text: p.project.name }), h('p', { class: 'lead', text: p.project.goal }),
-        h('span', { class: 'ev', text: `로드맵 v${p.version} · 감독 승인 ${p.approved.directive} · ${when(p.approved.at)}${p.approved.transcribed_by ? ` · ${p.approved.transcribed_by} 전사${p.approved.source?.sha256 ? '' : ' (원문 대조 전)'}` : ''}` })),
+        h('span', { class: 'ev', text: `로드맵 v${p.version} · 감독 승인 ${p.approved.directive} · 승인 시각 ${p.approved.at ? when(p.approved.at, p.approved.at_precision) : '미기록'}${p.approved.transcribed_by ? ` · ${p.approved.transcribed_by} 전사 ${when(p.approved.transcribed_at)}` : ''} · ${p.approved.original_checked ? '원문 SHA 대조됨' : '원문 대조 전'} · 근거 ${p.approved.source.ref}` })),
       h('section', { class: 'g4' },
         h('article', { class: 'card' }, h('span', { class: 'lbl', text: '전체 단계' }), h('span', { class: 'n', text: String(c.total) }), h('span', { class: 'ev', text: p.current_stage ? `현재 ${p.current_stage.no}단계 · ${p.current_stage.name}` : '진행 중인 단계 없음' })),
         h('article', { class: 'card' }, h('span', { class: 'lbl', text: '완료' }), h('span', { class: 'n', text: String(c.done) }), h('span', { class: 'ev', text: '감독 승인 로드맵 기준' })),
