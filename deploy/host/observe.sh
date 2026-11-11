@@ -35,6 +35,7 @@ run() {
   local B=${OBS_BASE:-http://127.0.0.1:8097/Houdini} C=${OBS_CONTAINER:-houdini-web-1} RA=${OBS_RECHECK_AT:-22} RMIN=${OBS_ROADMAP_MIN:-4}
   local start cg; start=$(docker inspect "$C" --format '{{.State.StartedAt}}')
   cg=/sys/fs/cgroup/system.slice/docker-$(docker inspect "$C" --format '{{.Id}}').scope
+  echo $$ > "$log.pid"   # ② QA REVIEW 2: the observing process records its own pid (setsid may fork, so $! can differ)
   echo "# observe $ver start=$start samples=$n gap=${gap}s pid=$$" >> "$log"
   local i
   for i in $(seq 1 "$n"); do
@@ -66,7 +67,8 @@ case "$cmd" in
     [ -e "$1" ] && { echo "기록 파일이 이미 있음 — 덮어쓰지 않음: $1"; exit 1; }
     : > "$1"
     setsid nohup bash "$0" _run "$@" > /dev/null 2>&1 < /dev/null &
-    echo $! > "$1.pid"; echo "관찰 시작 pid $(cat "$1.pid") — 세션과 분리됨. 판정: observe.sh verdict $1";;
+    for _ in $(seq 1 20); do [ -s "$1.pid" ] && break; sleep 0.2; done
+    echo "관찰 시작 pid $(cat "$1.pid" 2>/dev/null || echo 확인 안 됨) — 세션과 분리됨. 판정: observe.sh verdict $1";;
   _run) run "$@";;
   verdict) verdict "$@"; exit $?;;
   status)
