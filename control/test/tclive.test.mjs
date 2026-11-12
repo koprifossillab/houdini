@@ -109,6 +109,7 @@ test('TL6 (결정 27 3항) QA verdicts are linked by model SHA-256 and task, nev
     c({ candidate: '모델 e534bf21', task_id: 'TC-VIS-029', at: '2026-11-12T11:55:00Z' }),                            // other task
     c({ team: 'TC-PROD', candidate: '모델 e534bf21', at: '2026-11-12T11:56:00Z' }),                                  // not QA
     c({ candidate: 'br1a e534bf2', at: '2026-11-12T11:57:00Z' }),                                                   // 7-hex commit-like token, no "모델"
+    c({ candidate: 'br1a (모델 e534bf2)', at: '2026-11-12T11:59:00Z' }),                                              // "모델" but only 7 hex: too short
   ];
   const st = { task_id: 'TC-VIS-030', model_sha256: M1 };
   assert.deepEqual(qaFor(cards, st).map(x => x.verdict), ['PASS', 'REVIEW']);
