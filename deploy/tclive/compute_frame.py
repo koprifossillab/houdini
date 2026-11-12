@@ -3,7 +3,7 @@
 # CPU / memory / time limits. The model file's SHA-256 is checked BEFORE it is imported (integrity, not safety).
 #   python -I -B compute_frame.py --model /in/model.py --sha <64 hex> --frame 300 --out /out/f0300.bin
 # Prints one JSON line: timings, sizes, peak memory. Writes nothing but --out.
-import argparse, hashlib, importlib.util, json, resource, struct, sys, time
+import argparse, hashlib, json, resource, struct, sys, time
 
 sys.path.insert(0, '/opt/site')          # numpy, mounted read only
 import numpy as np                       # noqa: E402
@@ -18,8 +18,10 @@ src = open(a.model, 'rb').read()
 got = hashlib.sha256(src).hexdigest()
 if got != a.sha:
     print(json.dumps({'ok': False, 'error': 'model sha256 mismatch', 'got': got})); sys.exit(2)
-spec = importlib.util.spec_from_file_location('tc_model', a.model)
-M = importlib.util.module_from_spec(spec); spec.loader.exec_module(M)
+# ② QA REVIEW a: run exactly the bytes whose hash was checked (no second read of the file)
+import types  # noqa: E402
+M = types.ModuleType('tc_model'); M.__file__ = '/in/model.py'
+exec(compile(src, '/in/model.py', 'exec'), M.__dict__)
 t_import = time.perf_counter() - t0
 
 # element ids on screen: 0 pink, 1 gray, 2 blue body, 3 blue basal pieces; br1 lens (4) is pink matrix, grit (5) is pieces
