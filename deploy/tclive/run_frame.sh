@@ -2,7 +2,7 @@
 # Thermal Collapse LIVE — isolated one-frame computation (감독 결정 22·24 조건). Read only on everything but the output folder.
 #   run_frame.sh <model.py> <expected sha256> <frame> <output folder>
 # Isolation: --network none · the invoking non-root uid · read-only root · cap-drop ALL · no-new-privileges ·
-#            1 CPU · 2 GiB memory (no swap) · 64 pids · 300 s · no Docker socket, no home, no secrets mounted.
+#            1 CPU · 2 GiB memory (no swap) · 64 pids · 300 s (killed on timeout) · 200 MiB per file · no Docker socket, no home, no secrets mounted.
 # The Python + numpy used are an existing interpreter, mounted read only; the base image only provides libc.
 set -u
 MODEL=$1 SHA=$2 FRAME=$3 OUT=$4
@@ -14,10 +14,14 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 F=$(printf 'f%04d.bin' "$FRAME")
 # ② QA REVIEW b: the model writes into a fresh empty folder; the host checks the one expected mesh file and moves
 # only that file into OUT (the index is written by the host, never by the container)
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/tclive-frame.XXXXXX"); trap 'rm -rf "$WORK"' EXIT
-timeout --kill-after=10 300 docker run --rm --name "tclive-frame-$$" \
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/tclive-frame.XXXXXX")
+NAME="tclive-frame-$$"
+# ② QA 10c7cb8 REVIEW 1: timeout only ends the docker client — the container itself is killed here on every exit path
+trap 'docker kill "$NAME" >/dev/null 2>&1; docker rm -f "$NAME" >/dev/null 2>&1; rm -rf "$WORK"' EXIT
+LIMIT=${TCLIVE_TIMEOUT:-300}
+timeout --kill-after=10 "$LIMIT" docker run --rm --name "$NAME" \
   --network none --user "$(id -u):$(id -g)" --read-only --cap-drop ALL --security-opt no-new-privileges \
-  --cpus 1 --memory 2g --memory-swap 2g --pids-limit 64 \
+  --cpus 1 --memory 2g --memory-swap 2g --pids-limit 64 --ulimit fsize=209715200:209715200 \
   --tmpfs /tmp:size=16m,mode=1777 -e HOME=/tmp -e PYTHONDONTWRITEBYTECODE=1 \
   -v "$PY":/opt/py:ro -v "$SITE":/opt/site:ro \
   -v "$MODEL":/in/model.py:ro -v "$HERE/compute_frame.py":/in/compute_frame.py:ro \
@@ -27,6 +31,8 @@ rc=$?
 [ $rc = 0 ] || { echo "계산 실패 (rc $rc) — 결과 옮기지 않음"; exit $rc; }
 [ "$(ls -A "$WORK")" = "$F" ] || { echo "출력 폴더에 예상 밖 파일: $(ls -A "$WORK" | tr '\n' ' ') — 결과 옮기지 않음"; exit 3; }
 [ -f "$WORK/$F" ] && [ ! -L "$WORK/$F" ] || { echo "출력 파일이 일반 파일이 아님 — 결과 옮기지 않음"; exit 3; }
+# ② QA 10c7cb8 REVIEW 2: size first (the container is also capped at 200 MiB per file by --ulimit fsize)
+[ "$(stat -c %s "$WORK/$F")" -le 125829120 ] || { echo "출력 파일이 너무 큼(120 MiB 초과) — 결과 옮기지 않음"; exit 3; }
 node --input-type=module -e "import {checkMesh} from '$HERE/../../control/lib/tclive-mesh.mjs'; import fs from 'node:fs'; process.exit(checkMesh(fs.readFileSync(process.argv[1])) ? 0 : 1)" "$WORK/$F" \
   || { echo "TCM1 형식 검사 실패 — 결과 옮기지 않음"; exit 3; }
 mv "$WORK/$F" "$OUT/$F" && chmod 444 "$OUT/$F" && echo "옮김: $F"
