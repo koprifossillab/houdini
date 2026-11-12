@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LIVE · Houdini 제작 관제실</title>
+<link rel="icon" href="../static/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../static/tclive.css">
+</head>
+<body>
+<nav class="menu" aria-label="관제실 메뉴">
+  <b class="brand">Houdini 제작 관제실</b>
+  <a href="../#home">홈</a>
+  <a href="../#roadmap">프로젝트 로드맵</a>
+  <a href="../#teams">팀 현황</a>
+  <a href="../#issues">문제·승인·이력</a>
+  <a href="../#review">프리뷰 검수</a>
+  <a href="../#tech">기술 상세</a>
+  <a href="../#data">데이터 근거표</a>
+  <a href="./" aria-current="page" class="on">LIVE</a>
+</nav>
+<header class="top">
+  <div class="brand"><b>Thermal Collapse LIVE</b> <span class="ver" id="ver"></span></div>
+  <div class="notice" id="notice">형상 확인용 화면입니다. Karma 렌더가 아니며, 시각 승인 근거가 아닙니다.</div>
+</header>
+<main class="lay">
+  <section class="stage">
+    <canvas id="gl" aria-label="3D 형상 보기 — 마우스 왼쪽 끌기 회전, 휠 확대, 오른쪽 끌기 또는 Shift+끌기 이동"></canvas>
+    <div class="srcbadge" id="srcbadge">불러오는 중</div>
+    <div class="views" role="group" aria-label="시점">
+      <button type="button" id="v-all">전체 구도</button>
+      <button type="button" id="v-toe">하부 파쇄 확대</button>
+      <button type="button" id="v-top">위에서</button>
+    </div>
+    <div class="help">왼쪽 끌기 회전 · 휠 확대 · 오른쪽 끌기(또는 Shift) 이동</div>
+  </section>
+  <aside class="side">
+    <section class="box">
+      <h2>① 제작 진행</h2>
+      <dl id="status"><dt>상태</dt><dd>불러오는 중</dd></dl>
+      <p class="warn" id="statwarn" hidden></p>
+    </section>
+    <section class="box">
+      <h2>기술 검사 (① 진행 상태 파일)</h2>
+      <div id="checks" class="ev">없음</div>
+    </section>
+    <section class="box">
+      <h2>확인된 QA 판정 (② 카드)</h2>
+      <div id="qa" class="ev">없음</div>
+    </section>
+    <section class="box">
+      <h2>형상 자료</h2>
+      <dl id="mesh"><dt>자료</dt><dd>불러오는 중</dd></dl>
+      <ul class="legend">
+        <li><i class="sw e0"></i>분홍 연약층</li><li><i class="sw e1"></i>회색 암반</li>
+        <li><i class="sw e2"></i>파란 암반 몸체</li><li><i class="sw e3"></i>파란 기저 조각</li>
+      </ul>
+    </section>
+  </aside>
+</main>
+<footer class="bar">
+  <button type="button" id="prev" aria-label="이전 프레임">◀</button>
+  <button type="button" id="play" aria-label="재생">재생</button>
+  <button type="button" id="next" aria-label="다음 프레임">▶</button>
+  <input type="range" id="slider" min="1" max="1" value="1" aria-label="프레임 선택">
+  <span class="fr" id="frlabel">F—</span>
+  <button type="button" id="latest">최신 완료 프레임</button>
+  <label class="follow"><input type="checkbox" id="follow" checked> 새 프레임 따라가기</label>
+  <span class="poll" id="poll">확인 전</span>
+</footer>
+<script src="../static/tclive.js"></script>
+</body>
+</html>

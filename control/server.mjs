@@ -22,6 +22,7 @@ import { readPcRuns } from './lib/pcrun.mjs';
 import { publicLive, publicBoard, publicSession } from './lib/public.mjs';
 import { readRoadmaps, buildRoadmapView } from './lib/roadmap.mjs';
 import { buildBoard } from './lib/board.mjs';
+import { tcliveState, tcliveFrame } from './lib/tclive.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PKG = JSON.parse(await fs.readFile(path.join(ROOT, 'package.json'), 'utf8'));
@@ -50,6 +51,10 @@ const ASSETS = {
   '/static/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/static/style.css': ['style.css', 'text/css; charset=utf-8'],
   '/static/icon.svg': ['icon.svg', 'image/svg+xml'],
+  // 감독 결정 23: Thermal Collapse LIVE inside the control room, same address and same access rules
+  '/live/': ['live.html', 'text/html; charset=utf-8'],
+  '/static/tclive.js': ['tclive.js', 'text/javascript; charset=utf-8'],
+  '/static/tclive.css': ['tclive.css', 'text/css; charset=utf-8'],
 };
 // TC-DASH-008 public policy: an unauthenticated service serves only these files and the public APIs
 const PUBLIC_ASSETS = {
@@ -87,6 +92,9 @@ export function configFromEnv(env = process.env) {
     decisionsDir: env.HPC_DECISIONS_DIR || null,
     // TC-DASH-005: director originals (compare-only) — also excluded from the NAS clue search
     directorDir: env.HPC_DIRECTOR_DIR || null,
+    // 감독 결정 23: Thermal Collapse LIVE — frame meshes and ① 's progress file (both read only; unset = '미연결')
+    tcliveMeshDir: env.HPC_TCLIVE_MESH_DIR || null,
+    tcliveStatusFile: env.HPC_TCLIVE_STATUS_FILE || null,
     nas: { film: env.HPC_NAS_FILM_DIR || null, launch: env.HPC_NAS_LAUNCH_DIR || null, directorDir: env.HPC_DIRECTOR_DIR || null, exclude: (env.HPC_NAS_EXCLUDE || '').split(',').map(s => s.trim()).filter(Boolean) },
     recordsFile: env.HPC_RECORDS || path.join(ROOT, 'data', 'records.json'),
     authMode: env.HPC_AUTH || 'basic',
@@ -401,6 +409,18 @@ export function createApp(cfg = configFromEnv()) {
         return res.end();
       }
       return send(req, res, 200, l.body, 'application/json; charset=utf-8', { ...hdr, 'Cache-Control': 'no-cache' });
+    }
+    // 감독 결정 23: LIVE 3D page data — read only, behind the same auth / public-only gate as every page above
+    if (p === '/live') { res.writeHead(301, { Location: `${cfg.basePath}/live/`, ...SECURITY }); return res.end(); }
+    if (p === '/api/tclive/state') {
+      const cards = cfg.demo ? [] : (await readCards(cfg.handoffDir)).items;
+      return send(req, res, 200, { served_at: new Date().toISOString(), version: VERSION, ...(await tcliveState({ meshDir: cfg.demo ? null : cfg.tcliveMeshDir, statusFile: cfg.demo ? null : cfg.tcliveStatusFile, cards })) });
+    }
+    const tm = /^\/api\/tclive\/frame\/(\d{1,5})$/.exec(p);
+    if (tm) {
+      const r = cfg.demo ? { status: 404 } : await tcliveFrame(cfg.tcliveMeshDir, Number(tm[1]));
+      if (r.status !== 200) return send(req, res, r.status, { error: r.status === 422 ? '형상 자료 형식 오류' : '그 프레임의 형상이 없음' });
+      return send(req, res, 200, r.body, 'application/octet-stream', { 'Cache-Control': 'private, max-age=60', 'X-Model-Sha256': r.model_sha256 });
     }
     // TC-DASH-010: director-approved project roadmap, with the linked cards shown beside it (never changing it)
     if (p === '/api/roadmap') {
