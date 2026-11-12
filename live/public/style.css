@@ -1,0 +1,41 @@
+/* layout: 3D 화면이 주인공 — 왼쪽 캔버스, 오른쪽 상태 패널, 아래 프레임 막대 */
+:root{--bg:#EEF1F4;--panel:#FFFFFF;--ink:#14181F;--mute:#56606E;--line:#D5DBE3;--acc:#1D4F91;--warn:#8A5A00;--bad:#A3262E;--ok:#1E6B3A;--scene:#1A1E24;
+--e0:#D9779F;--e1:#8F959C;--e2:#3F6FB5;--e3:#26487A;--f:"Noto Sans KR","Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif;--mono:ui-monospace,Consolas,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root{--bg:#0F1216;--panel:#181C22;--ink:#E9ECF1;--mute:#A0A8B4;--line:#2B313B;--acc:#8FB4EE;--warn:#E9C27A;--bad:#F08A90;--ok:#86D3A0}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 var(--f);display:grid;grid-template-rows:auto 1fr auto;padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px))}
+.top{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;padding:10px 0}
+.brand b{font-size:16px}.ver{color:var(--mute);font:12px var(--mono)}
+.notice{border:1px solid var(--warn);color:var(--warn);border-radius:6px;padding:3px 10px;font-size:13px}
+.lay{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:12px;min-height:0}
+.stage{position:relative;min-height:320px;border-radius:8px;overflow:hidden;background:var(--scene)}
+canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+canvas:active{cursor:grabbing}
+.srcbadge{position:absolute;left:10px;top:10px;background:rgba(0,0,0,.6);color:#fff;border-radius:6px;padding:4px 10px;font-size:13px}
+.srcbadge.test{background:#7A4E00}.srcbadge.prod{background:#1E6B3A}.srcbadge.other{background:#A3262E}
+.views{position:absolute;right:10px;top:10px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.views button,.bar button{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:6px;padding:4px 10px;cursor:pointer}
+.views button[aria-pressed="true"]{border-color:var(--acc);color:var(--acc);font-weight:700}
+button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.help{position:absolute;left:10px;bottom:8px;color:#C9CED6;font-size:12px}
+.side{display:grid;gap:10px;align-content:start;overflow:auto;min-width:0}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:grid;gap:6px;min-width:0}
+.box h2{margin:0;font-size:13px;color:var(--mute);font-weight:700}
+dl{margin:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 10px}
+dt{color:var(--mute);font-size:12.5px}dd{margin:0;overflow-wrap:anywhere}
+.mono{font-family:var(--mono);font-size:12.5px}
+.ev{color:var(--mute);font-size:12.5px;display:grid;gap:3px}
+.warn{margin:0;color:var(--warn);font-size:12.5px}
+.v{display:inline-block;font:700 11.5px var(--mono);border-radius:4px;padding:0 5px;border:1px solid currentColor}
+.v.PASS{color:var(--ok)}.v.FAIL{color:var(--bad)}.v.REVIEW,.v.pending{color:var(--warn)}
+.legend{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:2px 8px;font-size:12.5px}
+.sw{display:inline-block;width:.85em;height:.85em;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.e0{background:var(--e0)}.e1{background:var(--e1)}.e2{background:var(--e2)}.e3{background:var(--e3)}
+.bar{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;padding:10px 0}
+.bar input[type=range]{flex:1 1 220px;min-width:120px}
+.fr{font:700 14px var(--mono);font-variant-numeric:tabular-nums;min-width:5ch}
+.follow{font-size:13px;color:var(--mute)}
+.poll{font-size:12.5px;color:var(--mute);margin-left:auto}
+.poll.bad{color:var(--bad)}
+@media (max-width:760px){.lay{grid-template-columns:minmax(0,1fr)}.stage{min-height:56vh}}

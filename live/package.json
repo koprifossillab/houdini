@@ -1,0 +1,9 @@
+{
+  "name": "tc-live",
+  "version": "0.1.0-proto.1",
+  "private": true,
+  "type": "module",
+  "description": "Thermal Collapse LIVE — 형상 확인용 3D 중계 시제품 (감독 결정 22, 독립 시제품)",
+  "scripts": { "start": "node server.mjs", "test": "node --test test/*.test.mjs" },
+  "engines": { "node": ">=22" }
+}
