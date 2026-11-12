@@ -95,6 +95,8 @@ export function configFromEnv(env = process.env) {
     // 감독 결정 23: Thermal Collapse LIVE — frame meshes and ① 's progress file (both read only; unset = '미연결')
     tcliveMeshDir: env.HPC_TCLIVE_MESH_DIR || null,
     tcliveStatusFile: env.HPC_TCLIVE_STATUS_FILE || null,
+    // 감독 결정 29: ① 's status folder (one file per task/candidate) — preferred over a single file
+    tcliveStatusDir: env.HPC_TCLIVE_STATUS_DIR || null,
     nas: { film: env.HPC_NAS_FILM_DIR || null, launch: env.HPC_NAS_LAUNCH_DIR || null, directorDir: env.HPC_DIRECTOR_DIR || null, exclude: (env.HPC_NAS_EXCLUDE || '').split(',').map(s => s.trim()).filter(Boolean) },
     recordsFile: env.HPC_RECORDS || path.join(ROOT, 'data', 'records.json'),
     authMode: env.HPC_AUTH || 'basic',
@@ -414,7 +416,7 @@ export function createApp(cfg = configFromEnv()) {
     if (p === '/live') { res.writeHead(301, { Location: `${cfg.basePath}/live/`, ...SECURITY }); return res.end(); }
     if (p === '/api/tclive/state') {
       const cards = cfg.demo ? [] : (await readCards(cfg.handoffDir)).items;
-      return send(req, res, 200, { served_at: new Date().toISOString(), version: VERSION, ...(await tcliveState({ meshDir: cfg.demo ? null : cfg.tcliveMeshDir, statusFile: cfg.demo ? null : cfg.tcliveStatusFile, cards })) });
+      return send(req, res, 200, { served_at: new Date().toISOString(), version: VERSION, ...(await tcliveState({ meshDir: cfg.demo ? null : cfg.tcliveMeshDir, statusFile: cfg.demo ? null : cfg.tcliveStatusFile, statusDir: cfg.demo ? null : cfg.tcliveStatusDir, cards })) });
     }
     const tm = /^\/api\/tclive\/frame\/(\d{1,5})$/.exec(p);
     if (tm) {

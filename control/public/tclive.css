@@ -4,7 +4,7 @@
 @media (prefers-color-scheme:dark){:root{--bg:#0F1216;--panel:#181C22;--ink:#E9ECF1;--mute:#A0A8B4;--line:#2B313B;--acc:#8FB4EE;--warn:#E9C27A;--bad:#F08A90;--ok:#86D3A0}}
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
-body{background:var(--bg);color:var(--ink);font:14px/1.5 var(--f);display:grid;grid-template-rows:auto auto 1fr auto;padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px))}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 var(--f);display:grid;grid-template-rows:auto auto auto 1fr auto;padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px))}
 .top{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;padding:10px 0}
 .brand b{font-size:16px}.ver{color:var(--mute);font:12px var(--mono)}
 .notice{border:1px solid var(--warn);color:var(--warn);border-radius:6px;padding:3px 10px;font-size:13px}
@@ -44,3 +44,8 @@ dt{color:var(--mute);font-size:12.5px}dd{margin:0;overflow-wrap:anywhere}
 .menu a{color:var(--mute);text-decoration:none;font-size:13.5px;padding:2px 0;border-bottom:2px solid transparent}
 .menu a:hover{color:var(--ink)}
 .menu a.on{color:var(--acc);border-bottom-color:var(--acc);font-weight:700}
+.wip{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;border:1px solid var(--bad);border-radius:8px;background:var(--panel);padding:8px 12px;margin-bottom:10px;font-size:13.5px}
+.wip b{color:var(--bad)}
+.wip[hidden]{display:none}
+/* fixed rows, so the optional WIP line never shifts the stage into the wrong row */
+.menu{grid-row:1}.top{grid-row:2}.wip{grid-row:3}.lay{grid-row:4}.bar{grid-row:5}

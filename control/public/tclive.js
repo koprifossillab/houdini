@@ -163,6 +163,12 @@ function render(s) {
   const hasProd = !!(s.mesh && s.mesh.latest_completed != null && s.mesh.frames.some(f => f.frame === s.mesh.latest_completed && f.source === 'production'));
   $('latest').textContent = hasProd ? `① 최신 완료 프레임 (F${s.mesh.latest_completed})` : '마지막 프레임 (① 완료 정보 없음)';
   const m = s.mesh;
+  const wip = $('wip');
+  if (m && (m.notes.length || m.tech)) {
+    wip.hidden = false;
+    wip.replaceChildren(...m.notes.map((t, i) => el(i === 0 ? 'b' : 'span', { text: t })),
+      m.tech ? el('span', {}, '기술 상태 ', el('span', { class: `v ${m.tech.result}`, text: m.tech.result === 'pending' ? '판정 전' : m.tech.result }), m.tech.text ? ` ${m.tech.text}` : '') : null);
+  } else wip.hidden = true;
   if (!m) { dl($('mesh'), [['자료', '형상 자료 없음']]); return; }
   const kinds = [...new Set(m.frames.map(f => f.source_label))].join(' · ');
   const match = st ? (st.model_sha256 === m.model_sha256 ? '① 진행 모델과 같음' : '① 진행 모델과 다름') : '비교할 ① 정보 없음';

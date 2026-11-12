@@ -12,7 +12,7 @@ import { checkMesh } from './tclive-mesh.mjs';
 const SHA = /^[a-f0-9]{64}$/;
 const TASK = /^TC-[0-9A-Z]{2,12}-\d{3}[A-Za-z0-9]{0,3}$/;
 const STAGES = { idle: '대기', computing: '형상 계산 중', checking: '기술 검사 중', done: '완료', failed: '실패', stopped: '중단' };
-export const SOURCES = { production: '① 계산 완료', viewer: '뷰어 계산 — ① 계산 완료 아님', test: '테스트 데이터 — 실제 모델 아님', unconfirmed: '① 완료 목록과 맞지 않음 — 미확인' };
+export const SOURCES = { production: '① 계산 완료', viewer: '④ 격리 계산기 생성 — ① 계산 완료 아님', test: '테스트 데이터 — 실제 모델 아님', unconfirmed: '① 완료 목록과 맞지 않음 — 미확인' };
 export const STALE_MS = 10 * 60 * 1000;
 const MAX_MESH = 120 * 1024 * 1024;
 const txt = (v, n = 160) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f]/g, ' ').slice(0, n) : '');
@@ -59,7 +59,10 @@ export async function readFrames(meshDir) {
   const frames = (Array.isArray(idx.frames) ? idx.frames : []).slice(0, 5000)
     .filter(f => int(f?.frame) !== null && /^f\d{4}\.bin$/.test(String(f.file || '')) && ['production', 'viewer', 'test'].includes(f.source))
     .sort((a, b) => a.frame - b.frame);
-  return { model_sha256: idx.model_sha256, label: txt(idx.label, 80), frames };
+  // 감독 결정 29 2항: what the shown model is, said on screen (e.g. '제작 중 — 최종 승인 모델 아님'); up to 6 short lines
+  const notes = (Array.isArray(idx.notes) ? idx.notes : []).slice(0, 6).map(x => txt(x, 120)).filter(Boolean);
+  const tech = idx.tech && typeof idx.tech === 'object' ? { result: ['PASS', 'FAIL', 'REVIEW', 'pending'].includes(idx.tech.result) ? idx.tech.result : 'pending', text: txt(idx.tech.text, 120) } : null;
+  return { model_sha256: idx.model_sha256, label: txt(idx.label, 80), notes, tech, frames };
 }
 
 export function frameView(frames, status) {
@@ -77,6 +80,20 @@ export async function readStatus(file, now = Date.now()) {
   const d = await readSmallJson(file);
   const status = parseStatus(d, now);
   return { state: !status ? 'missing' : status.future ? 'future' : status.stale ? 'stale' : 'live', status };
+}
+
+// 감독 결정 29 3항: ① writes one status file per task and candidate (~/tc_live/status/<task>-<candidate>.json).
+// The one shown is the file whose model_sha256 equals the shown shapes' model (newest update wins); none = 'missing'.
+export async function readStatusDir(dir, modelSha, now = Date.now()) {
+  if (!dir) return { state: 'not_configured', status: null };
+  let names;
+  try { names = (await fs.readdir(dir, { withFileTypes: true })).filter(d => d.isFile() && /^[\w.-]{1,120}\.json$/.test(d.name)).map(d => d.name).sort().slice(-50); } catch { return { state: 'missing', status: null }; }
+  let best = null;
+  for (const n of names) {
+    const s = parseStatus(await readSmallJson(path.join(dir, n)), now);
+    if (s && modelSha && s.model_sha256 === modelSha && (!best || String(s.updated_at) > String(best.updated_at))) best = s;
+  }
+  return { state: !best ? 'missing' : best.future ? 'future' : best.stale ? 'stale' : 'live', status: best };
 }
 
 // 감독 결정 27 3항: a QA verdict is linked to what is on screen by the MODEL SHA-256 and the task, never by a part
@@ -98,12 +115,13 @@ export function qaFor(cards, status) {
     .map(c => ({ verdict: c.verdict, scope: c.verdict_scope || null, at: c.at, title: txt(c.title, 140), task_id: c.task_id }));
 }
 
-export async function tcliveState({ meshDir, statusFile, cards = [] }, now = Date.now()) {
-  const [{ state, status }, frames] = await Promise.all([readStatus(statusFile, now), readFrames(meshDir)]);
+export async function tcliveState({ meshDir, statusFile, statusDir, cards = [] }, now = Date.now()) {
+  const frames = await readFrames(meshDir);
+  const { state, status } = statusDir ? await readStatusDir(statusDir, frames?.model_sha256, now) : await readStatus(statusFile, now);
   return {
     notice: '형상 확인용 화면입니다. Karma 렌더가 아니며, 시각 승인 근거가 아닙니다.',
     status_state: state, status,
-    mesh: frames ? { model_sha256: frames.model_sha256, label: frames.label, frames: frameView(frames, status), latest_completed: status ? status.last_completed_frame : null } : null,
+    mesh: frames ? { model_sha256: frames.model_sha256, label: frames.label, notes: frames.notes, tech: frames.tech, frames: frameView(frames, status), latest_completed: status ? status.last_completed_frame : null } : null,
     qa: qaFor(cards, status),
     qa_state: !status ? 'no_status' : qaFor(cards, status).length ? 'linked' : 'unverified',
   };

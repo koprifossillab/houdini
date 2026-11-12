@@ -7,7 +7,7 @@ import path from 'node:path';
 import { tmp, serve } from './helpers.mjs';
 import { hashPassword } from '../lib/auth.mjs';
 import { encodeMesh, checkMesh } from '../lib/tclive-mesh.mjs';
-import { parseStatus, frameView, qaFor } from '../lib/tclive.mjs';
+import { parseStatus, frameView, qaFor, readStatusDir, tcliveState } from '../lib/tclive.mjs';
 
 const A = 'a'.repeat(64), B = 'b'.repeat(64);
 const tri = { positions: [0, 0, 0, 1, 0, 0, 0, 1, 0], elements: [0, 1, 3], indices: [0, 1, 2] };
@@ -121,4 +121,28 @@ test('TL6 (결정 27 3항) QA verdicts are linked by model SHA-256 and task, nev
 test('TL7 the LIVE viewer writes text only through textContent', async () => {
   const js = await fs.readFile(new URL('../public/tclive.js', import.meta.url), 'utf8');
   assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function/.test(js));
+});
+
+test('TL8 (결정 29) ① status folder: the file with the shown model hash is used; WIP notes and technical state reach the screen', async t => {
+  const md = await meshDir(t, 'viewer');
+  const idx = JSON.parse(await fs.readFile(path.join(md, 'index.json'), 'utf8'));
+  idx.notes = ['제작 중 — 최종 승인 모델 아님', '우측 부분 후보 · 왼쪽 파쇄 미구현']; idx.tech = { result: 'FAIL', text: 'E-G (세립 매몰)' };
+  await fs.writeFile(path.join(md, 'index.json'), JSON.stringify(idx));
+  const sd = await tmp(t);
+  await fs.writeFile(path.join(sd, 'TC-VIS-030-other.json'), JSON.stringify(statusDoc({ model_sha256: B, candidate: 'pc1 3976521' })));
+  await fs.writeFile(path.join(sd, 'TC-VIS-030-br1a.json'), JSON.stringify(statusDoc({ completed_frames: [1, 2], updated_at: new Date(Date.now() - 60e3).toISOString() })));
+  await fs.writeFile(path.join(sd, 'TC-VIS-030-br1a-old.json'), JSON.stringify(statusDoc({ stage: 'done', updated_at: new Date(Date.now() - 3600e3).toISOString() })));
+  await fs.writeFile(path.join(sd, 'junk.json'), '{not json');
+  const r = await readStatusDir(sd, A, Date.now());
+  assert.equal(r.state, 'live'); assert.equal(r.status.stage, 'computing'); assert.equal(r.status.model_sha256, A);
+  assert.equal((await readStatusDir(sd, 'c'.repeat(64))).state, 'missing');
+  assert.equal((await readStatusDir(null, A)).state, 'not_configured');
+  const s = await tcliveState({ meshDir: md, statusDir: sd, cards: [] });
+  assert.deepEqual(s.mesh.notes, idx.notes); assert.deepEqual(s.mesh.tech, { result: 'FAIL', text: 'E-G (세립 매몰)' });
+  assert.equal(s.mesh.frames[1].source_label, '④ 격리 계산기 생성 — ① 계산 완료 아님');
+  // the folder path never reaches the answer
+  const b = await serve(t, { handoffDir: await hand(t), tcliveMeshDir: md, tcliveStatusDir: sd });
+  const raw = await (await fetch(`${b}/Houdini/api/tclive/state`)).text();
+  assert.ok(!raw.includes(sd) && !raw.includes('TC-VIS-030-br1a.json'));
+  assert.equal(JSON.parse(raw).status_state, 'live');
 });
