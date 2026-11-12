@@ -9,6 +9,9 @@ MODEL=$1 SHA=$2 FRAME=$3 OUT=$4
 PY=${TCLIVE_PY:-/home/shkim/tools/blender-5.2.2-linux-x64/5.2/python}
 SITE=${TCLIVE_SITE:-/home/shkim/venv/houdini-tc/lib/python3.13/site-packages}
 HERE=$(cd "$(dirname "$0")" && pwd)
+LIMIT=${TCLIVE_TIMEOUT:-300}
+# ② QA 0.4.2 REVIEW 2: an integer 1–300 only (timeout 0 would mean no limit)
+[[ "$LIMIT" =~ ^[0-9]{1,3}$ ]] && [ "$LIMIT" -ge 1 ] && [ "$LIMIT" -le 300 ] || { echo "TCLIVE_TIMEOUT 은 1–300 정수만"; exit 2; }
 [ "$(sha256sum "$MODEL" | cut -c1-64)" = "$SHA" ] || { echo "모델 해시 불일치 — 실행 안 함"; exit 2; }
 [ -d "$OUT" ] && [ -z "$(ls -A "$OUT")" ] || { echo "출력 폴더는 비어 있는 기존 폴더여야 함"; exit 2; }
 F=$(printf 'f%04d.bin' "$FRAME")
@@ -18,7 +21,6 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/tclive-frame.XXXXXX")
 NAME="tclive-frame-$$"
 # ② QA 10c7cb8 REVIEW 1: timeout only ends the docker client — the container itself is killed here on every exit path
 trap 'docker kill "$NAME" >/dev/null 2>&1; docker rm -f "$NAME" >/dev/null 2>&1; rm -rf "$WORK"' EXIT
-LIMIT=${TCLIVE_TIMEOUT:-300}
 timeout --kill-after=10 "$LIMIT" docker run --rm --name "$NAME" \
   --network none --user "$(id -u):$(id -g)" --read-only --cap-drop ALL --security-opt no-new-privileges \
   --cpus 1 --memory 2g --memory-swap 2g --pids-limit 64 --ulimit fsize=209715200:209715200 \
