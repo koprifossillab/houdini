@@ -27,9 +27,12 @@ async function readSmallJson(file, limit = 256 * 1024) {
   } catch { return null; }
 }
 
+// 감독 결정 33 2항: ① 's time must carry its zone (Z or ±hh:mm). A time without a zone, or one that does not parse,
+// is not guessed in the server's zone: it is 'time_ok: false' and confirms nothing (the screen says 미확인).
+const ZONED = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 export function parseStatus(d, now = Date.now()) {
   if (!d || d.schema !== 'tc-live-status/1' || !SHA.test(String(d.model_sha256 || ''))) return null;
-  const updated = iso(d.updated_at);
+  const updated = typeof d.updated_at === 'string' && ZONED.test(d.updated_at) ? iso(d.updated_at) : null;
   const items = d.checks && typeof d.checks.items === 'object' && d.checks.items ? d.checks.items : {};
   return {
     task_id: TASK.test(String(d.task_id || '')) ? d.task_id : null,
@@ -39,6 +42,7 @@ export function parseStatus(d, now = Date.now()) {
     frames_total: int(d.frames_total), last_completed_frame: int(d.last_completed_frame), current_frame: int(d.current_frame),
     completed: Array.isArray(d.completed_frames) ? d.completed_frames.filter(f => int(f) !== null).slice(0, 5000) : [],
     updated_at: updated,
+    time_ok: !!updated,
     stale: !updated || now - Date.parse(updated) > STALE_MS,
     future: !!updated && Date.parse(updated) > now + 60000,
     checks: {
@@ -69,7 +73,7 @@ export function frameView(frames, status) {
   const done = new Set(status ? status.completed : []);
   return frames.frames.map(f => {
     // ② QA TC-DASH-012 REVIEW 1: a status file dated in the future is not trusted to confirm anything
-    const prod = f.source === 'production' && status && !status.future && status.model_sha256 === frames.model_sha256 && done.has(f.frame);
+    const prod = f.source === 'production' && status && status.time_ok && !status.future && status.model_sha256 === frames.model_sha256 && done.has(f.frame);
     const source = f.source === 'production' && !prod ? 'unconfirmed' : f.source;
     return { frame: f.frame, source, source_label: SOURCES[source] };
   });
@@ -79,7 +83,7 @@ export async function readStatus(file, now = Date.now()) {
   if (!file) return { state: 'not_configured', status: null };
   const d = await readSmallJson(file);
   const status = parseStatus(d, now);
-  return { state: !status ? 'missing' : status.future ? 'future' : status.stale ? 'stale' : 'live', status };
+  return { state: !status ? 'missing' : !status.time_ok ? 'time_unknown' : status.future ? 'future' : status.stale ? 'stale' : 'live', status };
 }
 
 // 감독 결정 29 3항: ① writes one status file per task and candidate (~/tc_live/status/<task>-<candidate>.json).
@@ -93,7 +97,7 @@ export async function readStatusDir(dir, modelSha, now = Date.now()) {
     const s = parseStatus(await readSmallJson(path.join(dir, n)), now);
     if (s && modelSha && s.model_sha256 === modelSha && (!best || String(s.updated_at) > String(best.updated_at))) best = s;
   }
-  return { state: !best ? 'missing' : best.future ? 'future' : best.stale ? 'stale' : 'live', status: best };
+  return { state: !best ? 'missing' : !best.time_ok ? 'time_unknown' : best.future ? 'future' : best.stale ? 'stale' : 'live', status: best };
 }
 
 // 감독 결정 27 3항: a QA verdict is linked to what is on screen by the MODEL SHA-256 and the task, never by a part

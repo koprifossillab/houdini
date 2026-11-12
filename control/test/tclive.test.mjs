@@ -146,3 +146,20 @@ test('TL8 (결정 29) ① status folder: the file with the shown model hash is u
   assert.ok(!raw.includes(sd) && !raw.includes('TC-VIS-030-br1a.json'));
   assert.equal(JSON.parse(raw).status_state, 'live');
 });
+
+test('TL9 (결정 33 2항) a status time without a zone, or one that does not parse, is 미확인 and confirms no ① frame', async t => {
+  const frames = { model_sha256: A, frames: [{ frame: 1, source: 'production' }] };
+  for (const bad of ['2026-11-12T12:00:00', '2026-11-12 12:00:00+09:00', '12:00', 'yesterday', '', null, 1731380400000, '2026-11-12T12:00:00+0900']) {
+    const st = parseStatus(statusDoc({ updated_at: bad, completed_frames: [1] }), Date.now());
+    assert.equal(st.time_ok, false, String(bad));
+    assert.equal(frameView(frames, st)[0].source, 'unconfirmed', String(bad));
+  }
+  for (const good of [new Date().toISOString(), new Date(Date.now() - 60e3).toISOString().replace('Z', '+00:00')]) {
+    const st = parseStatus(statusDoc({ updated_at: good, completed_frames: [1] }), Date.now());
+    assert.equal(st.time_ok, true, good);
+    assert.equal(frameView(frames, st)[0].source, 'production', good);
+  }
+  const sd = await tmp(t);
+  await fs.writeFile(path.join(sd, 's.json'), JSON.stringify(statusDoc({ updated_at: '2026-11-12T12:00:00' })));
+  assert.equal((await readStatusDir(sd, A)).state, 'time_unknown');
+});

@@ -152,8 +152,8 @@ function render(s) {
     dl($('status'), [['작업', st.task_id || '—'], ['후보', st.candidate || '—'], ['모델', el('span', { class: 'mono', text: short(st.model_sha256) })], ['단계', st.stage_label],
       ['마지막 완료', st.last_completed_frame != null ? `F${st.last_completed_frame}${st.frames_total ? ` / ${st.frames_total}` : ''}` : '—'],
       ['진행 중', st.current_frame != null ? `F${st.current_frame}` : '—'], ['갱신 시각', when(st.updated_at)]]);
-    warn.hidden = !(st.stale || st.future);
-    warn.textContent = st.future ? '갱신 시각이 미래입니다 — 지금 상태 미확인' : `최근 10분 동안 갱신 없음 — 지금 상태 미확인 (마지막 ${when(st.updated_at)})`;
+    warn.hidden = !(st.stale || st.future || !st.time_ok);
+    warn.textContent = !st.time_ok ? '갱신 시각에 시간대가 없거나 읽을 수 없음 — 미확인 (① 계산 완료로 표시하지 않음)' : st.future ? '갱신 시각이 미래입니다 — 지금 상태 미확인' : `최근 10분 동안 갱신 없음 — 지금 상태 미확인 (마지막 ${when(st.updated_at)})`;
   }
   const items = st?.checks?.items || [];
   $('checks').replaceChildren(...(items.length ? [el('div', { text: `출처 ${st.checks.source || '—'} · ${st.checks.state === 'running' ? '진행 중' : st.checks.state === 'done' ? '완료' : '—'}` }),
