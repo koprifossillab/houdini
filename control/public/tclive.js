@@ -159,7 +159,7 @@ function render(s) {
   $('checks').replaceChildren(...(items.length ? [el('div', { text: `출처 ${st.checks.source || '—'} · ${st.checks.state === 'running' ? '진행 중' : st.checks.state === 'done' ? '완료' : '—'}` }),
     ...items.map(c => el('div', {}, el('span', { class: `v ${c.result}`, text: c.result === 'pending' ? '판정 전' : c.result }), ` ${c.name} ${c.value ?? '—'}${c.limit != null ? ` / 한도 ${c.limit}` : ''}${c.frame != null ? ` (F${c.frame})` : ''}`))]
     : [el('div', { text: '① 진행 상태 파일에 검사 결과 없음' })]));
-  $('qa').replaceChildren(...(s.qa.length ? s.qa.map(q => el('div', {}, el('span', { class: `v ${q.verdict}`, text: q.verdict }), ` ${q.scope || ''} · ${when(q.at)} · ${q.title}`)) : [el('div', { text: st?.candidate ? '이 후보의 ② QA 판정 카드 없음' : '후보 정보가 없어 QA 판정을 찾지 않음' })]));
+  $('qa').replaceChildren(...(s.qa.length ? s.qa.map(q => el('div', {}, el('span', { class: `v ${q.verdict}`, text: q.verdict }), ` ${q.scope || ''} · ${when(q.at)} · ${q.title}`)) : [el('div', { text: s.qa_state === 'no_status' ? 'QA 미확인 — ① 진행 상태 파일이 없어 모델을 알 수 없음' : 'QA 미확인 — 이 모델 해시를 가리키는 ② QA 판정 카드 없음' })]));
   const hasProd = !!(s.mesh && s.mesh.latest_completed != null && s.mesh.frames.some(f => f.frame === s.mesh.latest_completed && f.source === 'production'));
   $('latest').textContent = hasProd ? `① 최신 완료 프레임 (F${s.mesh.latest_completed})` : '마지막 프레임 (① 완료 정보 없음)';
   const m = s.mesh;

@@ -97,15 +97,24 @@ test('TL5 (결정 22 4항) "① 계산 완료" only for frames ① lists for the
   assert.equal((await (await fetch(`${b}/Houdini/api/tclive/state`)).json()).status_state, 'stale');
 });
 
-test('TL6 QA panel: only ② QA cards of the same candidate, newest first', () => {
-  const c = (team, cand, verdict, at) => ({ team, candidate: cand, verdict, verdict_scope: 'technical', at, title: 't', task_id: 'TC-VIS-030' });
-  const cards = [c('TC-QA', 'br1 1658263', 'FAIL', '2026-11-12T08:27:00Z'), c('TC-PROD', 'br1 1658263', 'FAIL', '2026-11-12T08:23:00Z'),
-    c('TC-QA', 'pc1 3976521', 'PASS', '2026-11-12T08:00:00Z'), c('TC-QA', 'br1 9b60ced', 'REVIEW', '2026-11-12T09:00:00Z'), c('TC-QA', 'br1', null, '2026-11-12T09:30:00Z')];
-  // ② QA REVIEW 2: name AND commit — the trial-6 FAIL (br1 1658263) is not shown for br1 9b60ced
-  assert.deepEqual(qaFor(cards, 'br1 9b60ced').map(x => x.verdict), ['REVIEW']);
-  assert.deepEqual(qaFor(cards, 'br1 1658263abcd').map(x => x.verdict), ['FAIL']);
-  assert.deepEqual(qaFor(cards, 'br1'), [], 'no commit, no match');
+test('TL6 (결정 27 3항) QA verdicts are linked by model SHA-256 and task, never by a part of the candidate name', () => {
+  const M1 = 'e534bf2192a82e13f2acd915b26fde8fec8a9d75f33738677745077731d2d6e8', M2 = '54db5955' + 'c'.repeat(56);
+  const c = (o) => ({ team: 'TC-QA', task_id: 'TC-VIS-030', verdict: 'FAIL', verdict_scope: 'technical', at: '2026-11-12T08:27:00Z', title: 't', candidate: null, evidence: [], ...o });
+  const cards = [
+    c({ candidate: 'br1 시험 6 (1658263, 모델 54db5955) — 우측 부분 후보', at: '2026-11-12T08:27:00Z' }),          // other model, same name
+    c({ candidate: 'br1a 0f6abbe (모델 e534bf21)', verdict: 'REVIEW', at: '2026-11-12T11:40:00Z' }),                 // this model by prefix
+    c({ candidate: 'br1a', verdict: 'PASS', evidence: [{ sha256: M1.slice(0, 16) }], at: '2026-11-12T11:45:00Z' }), // this model by the reader's 16-hex evidence hash
+    c({ candidate: 'br1a', verdict: 'FAIL', evidence: [{ sha256: 'e534bf2' }], at: '2026-11-12T11:58:00Z' }),          // 7 hex: too short to count
+    c({ candidate: 'br1a 0f6abbe', verdict: 'PASS', at: '2026-11-12T11:50:00Z' }),                                  // names no model
+    c({ candidate: '모델 e534bf21', task_id: 'TC-VIS-029', at: '2026-11-12T11:55:00Z' }),                            // other task
+    c({ team: 'TC-PROD', candidate: '모델 e534bf21', at: '2026-11-12T11:56:00Z' }),                                  // not QA
+    c({ candidate: 'br1a e534bf2', at: '2026-11-12T11:57:00Z' }),                                                   // 7-hex commit-like token, no "모델"
+  ];
+  const st = { task_id: 'TC-VIS-030', model_sha256: M1 };
+  assert.deepEqual(qaFor(cards, st).map(x => x.verdict), ['PASS', 'REVIEW']);
+  assert.deepEqual(qaFor(cards, { task_id: 'TC-VIS-030', model_sha256: M2 }).map(x => x.verdict), ['FAIL']);
   assert.deepEqual(qaFor(cards, null), []);
+  assert.deepEqual(qaFor(cards, { task_id: null, model_sha256: M1 }), []);
 });
 
 test('TL7 the LIVE viewer writes text only through textContent', async () => {

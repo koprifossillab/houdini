@@ -79,14 +79,21 @@ export async function readStatus(file, now = Date.now()) {
   return { state: !status ? 'missing' : status.future ? 'future' : status.stale ? 'stale' : 'live', status };
 }
 
-// cards: the items of readCards() — only TC-QA cards with a verdict, for the status file's candidate.
-// ② QA TC-DASH-012 REVIEW 2: match the candidate name AND its commit ("br1 9b60ced"), so a verdict on another
-// trial of the same candidate name (br1 1658263) is never shown as this one's. A candidate without a commit shows none.
-const candKey = s => { const [n, c] = String(s || '').trim().split(/\s+/); return n && /^[0-9a-f]{7,40}$/.test(c || '') ? `${n} ${c.slice(0, 7)}` : null; };
-export function qaFor(cards, candidate) {
-  const key = candKey(candidate);
-  if (!key) return [];
-  return cards.filter(c => c.team === 'TC-QA' && c.verdict && candKey(c.candidate) === key)
+// 감독 결정 27 3항: a QA verdict is linked to what is on screen by the MODEL SHA-256 and the task, never by a part
+// of the candidate name. A ② card counts when it is the same task AND it names this model: a full sha256 in its
+// evidence (as kept by the card reader, 8–64 hex prefix), or "모델 <hex ≥ 8>" / "model <hex>" in its candidate text that is a prefix of this model's hash.
+// Anything else — other model, no model named, no status file — is not linked (the screen says "QA 미확인").
+const MODEL_REF = /(?:모델|model)\s*[:=]?\s*([0-9a-f]{8,64})\b/gi;
+export function namesModel(card, sha) {
+  if (!SHA.test(String(sha || ''))) return false;
+  // the card reader keeps evidence hashes shortened (16 hex): a hash of 8+ hex that starts this model's hash counts
+  if ((card.evidence || []).some(e => e && /^[0-9a-f]{8,64}$/.test(String(e.sha256 || '')) && sha.startsWith(e.sha256))) return true;
+  for (const m of String(card.candidate || '').matchAll(MODEL_REF)) if (sha.startsWith(m[1].toLowerCase())) return true;
+  return false;
+}
+export function qaFor(cards, status) {
+  if (!status || !status.task_id) return [];
+  return cards.filter(c => c.team === 'TC-QA' && c.verdict && c.task_id === status.task_id && namesModel(c, status.model_sha256))
     .sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8)
     .map(c => ({ verdict: c.verdict, scope: c.verdict_scope || null, at: c.at, title: txt(c.title, 140), task_id: c.task_id }));
 }
@@ -97,7 +104,8 @@ export async function tcliveState({ meshDir, statusFile, cards = [] }, now = Dat
     notice: '형상 확인용 화면입니다. Karma 렌더가 아니며, 시각 승인 근거가 아닙니다.',
     status_state: state, status,
     mesh: frames ? { model_sha256: frames.model_sha256, label: frames.label, frames: frameView(frames, status), latest_completed: status ? status.last_completed_frame : null } : null,
-    qa: qaFor(cards, status?.candidate),
+    qa: qaFor(cards, status),
+    qa_state: !status ? 'no_status' : qaFor(cards, status).length ? 'linked' : 'unverified',
   };
 }
 
