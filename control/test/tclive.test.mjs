@@ -23,92 +23,55 @@ async function meshDir(t, source = 'production', model = A) {
     frames: [{ frame: 1, file: 'f0001.bin', source }, { frame: 2, file: 'f0002.bin', source: 'viewer' }, { frame: 3, file: 'f0003.bin', source }, { frame: 4, file: '../x.bin', source }] }));
   return dir;
 }
-const LIVE_USERS = `viewer:${hashPassword('live view pass')}`;
-const AUTH = { Authorization: 'Basic ' + Buffer.from('viewer:live view pass').toString('base64') };
-const get = (url, o = {}) => fetch(url, { ...o, headers: { ...AUTH, ...(o.headers || {}) } });
 async function hand(t) { const d = await tmp(t); for (const x of ['TC-PROD', 'TC-QA', 'TC-WORK', 'TC-DASH']) await fs.mkdir(path.join(d, x)); return d; }
 
 test('TL1 the LIVE page and its APIs answer under the control room address; /live goes to /live/', async t => {
   const md = await meshDir(t, 'test');
-  const b = await serve(t, { handoffDir: await hand(t), tcliveMeshDir: md, tcliveUsers: LIVE_USERS });
-  const page = await get(`${b}/Houdini/live/`);
+  const b = await serve(t, { handoffDir: await hand(t), tcliveMeshDir: md });
+  const page = await fetch(`${b}/Houdini/live/`);
   assert.equal(page.status, 200);
   assert.match(await page.text(), /Thermal Collapse LIVE/);
-  const red = await get(`${b}/Houdini/live`, { redirect: 'manual' });
+  const red = await fetch(`${b}/Houdini/live`, { redirect: 'manual' });
   assert.equal(red.status, 301); assert.equal(red.headers.get('location'), '/Houdini/live/');
-  for (const s of ['tclive.js', 'tclive.css']) assert.equal((await get(`${b}/Houdini/static/${s}`)).status, 200);
+  for (const s of ['tclive.js', 'tclive.css']) assert.equal((await fetch(`${b}/Houdini/static/${s}`)).status, 200);
   const home = await (await fetch(`${b}/Houdini/`)).text();
   assert.match(home, /href="live\/"[^>]*>LIVE</, 'LIVE in the menu');
-  const s = await (await get(`${b}/Houdini/api/tclive/state`)).json();
+  const s = await (await fetch(`${b}/Houdini/api/tclive/state`)).json();
   assert.equal(s.status_state, 'not_configured');
   assert.match(s.notice, /Karma 렌더가 아니며/);
   assert.deepEqual(s.mesh.frames.map(f => [f.frame, f.source]), [[1, 'test'], [2, 'viewer'], [3, 'test']]);   // ../x.bin dropped
-  const f1 = await get(`${b}/Houdini/api/tclive/frame/1`);
+  const f1 = await fetch(`${b}/Houdini/api/tclive/frame/1`);
   assert.equal(f1.status, 200); assert.ok(checkMesh(Buffer.from(await f1.arrayBuffer())));
-  assert.equal((await get(`${b}/Houdini/api/tclive/frame/3`)).status, 422);
-  assert.equal((await get(`${b}/Houdini/api/tclive/frame/4`)).status, 404);
-  assert.equal((await get(`${b}/Houdini/api/tclive/frame/99`)).status, 404);
+  assert.equal((await fetch(`${b}/Houdini/api/tclive/frame/3`)).status, 422);
+  assert.equal((await fetch(`${b}/Houdini/api/tclive/frame/4`)).status, 404);
+  assert.equal((await fetch(`${b}/Houdini/api/tclive/frame/99`)).status, 404);
 });
 
 test('TL2 read only: every write method is refused on the LIVE page and APIs', async t => {
-  const b = await serve(t, { handoffDir: await hand(t), tcliveMeshDir: await meshDir(t, 'test'), tcliveUsers: LIVE_USERS });
+  const b = await serve(t, { handoffDir: await hand(t), tcliveMeshDir: await meshDir(t, 'test') });
   for (const p of ['live/', 'api/tclive/state', 'api/tclive/frame/1']) for (const m of ['POST', 'PUT', 'PATCH', 'DELETE'])
-    assert.equal((await get(`${b}/Houdini/${p}`, { method: m })).status, 405, `${m} ${p}`);
+    assert.equal((await fetch(`${b}/Houdini/${p}`, { method: m })).status, 405, `${m} ${p}`);
 });
 
-test('TL3 (결정 24) LIVE has its own login: every LIVE path is closed without it, the rest of the site stays as configured', async t => {
+test('TL3 same access rules as the rest of the site: basic auth guards LIVE; public-only mode does not serve it', async t => {
+  const users = `u:${hashPassword('correct horse battery')}`;
   const md = await meshDir(t, 'test');
-  const LIVE = ['live/', 'live', 'api/tclive/state', 'api/tclive/frame/1', 'static/tclive.js', 'static/tclive.css'];
-  // site open (HPC_AUTH=off as in production), LIVE login set
-  const b = await serve(t, { handoffDir: await hand(t), tcliveMeshDir: md, tcliveUsers: LIVE_USERS });
-  for (const p of LIVE) for (const m of ['GET', 'HEAD']) {
-    const r = await fetch(`${b}/Houdini/${p}`, { method: m, redirect: 'manual' });
-    assert.equal(r.status, 401, `${m} ${p}`);
-    assert.match(r.headers.get('www-authenticate') || '', /realm="Thermal Collapse LIVE"/);
-  }
-  const wrong = { Authorization: 'Basic ' + Buffer.from('viewer:wrong').toString('base64') };
-  assert.equal((await fetch(`${b}/Houdini/api/tclive/state`, { headers: wrong })).status, 401);
-  assert.equal((await get(`${b}/Houdini/api/tclive/state`)).status, 200);
-  assert.equal((await get(`${b}/Houdini/api/tclive/frame/1`)).status, 200);
-  // the rest of the site: unchanged, no login
-  for (const p of ['', 'api/board', 'api/roadmap', 'static/board.js', 'legacy.html']) assert.equal((await fetch(`${b}/Houdini/${p}`)).status, 200, p);
-  // the LIVE menu entry stays visible (it carries no data)
-  assert.match(await (await fetch(`${b}/Houdini/`)).text(), /href="live\/"/);
-  // no LIVE user list: LIVE is closed even with a mesh folder set — real shapes are never served without a login
-  const closed = await serve(t, { handoffDir: await hand(t), tcliveMeshDir: md });
-  for (const p of LIVE) assert.equal((await get(`${closed}/Houdini/${p}`, { redirect: 'manual' })).status, 404, `closed ${p}`);
-  // public-only mode: LIVE not served at all
-  const pub = await serve(t, { handoffDir: await hand(t), tcliveMeshDir: md, tcliveUsers: LIVE_USERS, publicOnly: true, localDetail: false });
-  for (const p of LIVE) assert.equal((await get(`${pub}/Houdini/${p}`, { headers: { 'X-Real-IP': '198.51.100.7' }, redirect: 'manual' })).status, 404, `public ${p}`);
-});
-
-test('TL3b no way around the LIVE login: odd spellings of LIVE paths never return LIVE data', async t => {
-  const md = await meshDir(t, 'test');
-  const b = await serve(t, { handoffDir: await hand(t), tcliveMeshDir: md, tcliveUsers: LIVE_USERS });
-  for (const p of ['/Houdini//api/tclive/state', '/Houdini/api/tclive/state/', '/Houdini/api/tclive%2Fstate', '/Houdini/api/TCLIVE/state', '/Houdini/api/tclive/frame/1?x=1',
-    '/Houdini/static/../api/tclive/state', '/Houdini/live/../api/tclive/state', '/Houdini/LIVE/', '/houdini/live/', '/Houdini/live/index.html', '/Houdini/static/tclive.js.map']) {
-    const r = await fetch(`${b}${p}`, { redirect: 'manual' });
-    const body = Buffer.from(await r.arrayBuffer()).toString('latin1');
-    assert.ok(r.status !== 200 || (!body.includes('model_sha256') && !body.startsWith('TCM1') && !body.includes('__tcLive')), `${p} -> ${r.status}`);
-  }
-});
-
-test('TL3c failed LIVE logins are limited like the site login', async t => {
-  const b = await serve(t, { handoffDir: await hand(t), tcliveMeshDir: await meshDir(t, 'test'), tcliveUsers: LIVE_USERS, authLimits: { FAIL_PER_CLIENT: 3 } });
-  const wrong = { Authorization: 'Basic ' + Buffer.from('viewer:nope').toString('base64') };
-  const codes = [];
-  for (let i = 0; i < 5; i++) codes.push((await fetch(`${b}/Houdini/api/tclive/state`, { headers: wrong })).status);
-  assert.ok(codes.includes(429), codes.join(','));
+  const b = await serve(t, { handoffDir: await hand(t), tcliveMeshDir: md, authMode: 'basic', users });
+  for (const p of ['live/', 'api/tclive/state', 'api/tclive/frame/1', 'static/tclive.js']) assert.equal((await fetch(`${b}/Houdini/${p}`)).status, 401, p);
+  const good = 'Basic ' + Buffer.from('u:correct horse battery').toString('base64');
+  assert.equal((await fetch(`${b}/Houdini/api/tclive/state`, { headers: { Authorization: good } })).status, 200);
+  const pub = await serve(t, { handoffDir: await hand(t), tcliveMeshDir: md, publicOnly: true, localDetail: false });
+  for (const p of ['live/', 'api/tclive/state', 'api/tclive/frame/1', 'static/tclive.js']) assert.equal((await fetch(`${pub}/Houdini/${p}`, { headers: { 'X-Real-IP': '198.51.100.7' } })).status, 404, p);
 });
 
 test('TL4 no internal path, file name or model code leaves the server', async t => {
   const md = await meshDir(t, 'production');
   const sf = path.join(await tmp(t), 'status.json');
   await fs.writeFile(sf, JSON.stringify(statusDoc()));
-  const b = await serve(t, { handoffDir: await hand(t), tcliveMeshDir: md, tcliveStatusFile: sf, tcliveUsers: LIVE_USERS });
-  const raw = await (await get(`${b}/Houdini/api/tclive/state`)).text();
+  const b = await serve(t, { handoffDir: await hand(t), tcliveMeshDir: md, tcliveStatusFile: sf });
+  const raw = await (await fetch(`${b}/Houdini/api/tclive/state`)).text();
   for (const leak of [md, sf, 'f0001.bin', 'index.json', 'status.json', '/tmp/', 'hpc-test-']) assert.ok(!raw.includes(leak), leak);
-  const bad = await (await get(`${b}/Houdini/api/tclive/frame/3`)).text();
+  const bad = await (await fetch(`${b}/Houdini/api/tclive/frame/3`)).text();
   assert.ok(!bad.includes(md) && !bad.includes('f0003'));
 });
 
@@ -122,13 +85,13 @@ test('TL5 (결정 22 4항) "① 계산 완료" only for frames ① lists for the
   const md = await meshDir(t, 'production');
   const sf = path.join(await tmp(t), 'status.json');
   await fs.writeFile(sf, JSON.stringify(statusDoc({ completed_frames: [1] })));
-  const b = await serve(t, { handoffDir: await hand(t), tcliveMeshDir: md, tcliveStatusFile: sf, tcliveUsers: LIVE_USERS });
-  const s = await (await get(`${b}/Houdini/api/tclive/state`)).json();
+  const b = await serve(t, { handoffDir: await hand(t), tcliveMeshDir: md, tcliveStatusFile: sf });
+  const s = await (await fetch(`${b}/Houdini/api/tclive/state`)).json();
   assert.equal(s.status_state, 'live');
   assert.deepEqual(s.mesh.frames.map(f => f.source), ['production', 'viewer', 'unconfirmed']);
   // an old status file is marked, and its frames are still not promoted beyond what it lists
   await fs.writeFile(sf, JSON.stringify(statusDoc({ updated_at: new Date(Date.now() - 3600e3).toISOString() })));
-  assert.equal((await (await get(`${b}/Houdini/api/tclive/state`)).json()).status_state, 'stale');
+  assert.equal((await (await fetch(`${b}/Houdini/api/tclive/state`)).json()).status_state, 'stale');
 });
 
 test('TL6 QA panel: only ② QA cards of the same candidate, newest first', () => {

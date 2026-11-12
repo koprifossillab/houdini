@@ -65,9 +65,6 @@ const PUBLIC_ASSETS = {
   '/static/icon.svg': ['icon.svg', 'image/svg+xml'],
 };
 
-// 감독 결정 24: the LIVE paths. The router below serves LIVE data only on paths this function covers.
-export const isTcliveRoute = p => p === '/live' || p.startsWith('/live/') || p.startsWith('/api/tclive/') || p.startsWith('/static/tclive');
-
 // on/off switches: a mistyped value must not silently fall back to "open" (② QA REVIEW 0.3.2-rc.1) — refuse to start
 export function flag(v, name) {
   if (v === undefined || v === '') return false;
@@ -98,8 +95,6 @@ export function configFromEnv(env = process.env) {
     // 감독 결정 23: Thermal Collapse LIVE — frame meshes and ① 's progress file (both read only; unset = '미연결')
     tcliveMeshDir: env.HPC_TCLIVE_MESH_DIR || null,
     tcliveStatusFile: env.HPC_TCLIVE_STATUS_FILE || null,
-    // LIVE login (separate from HPC_AUTH): "user:scrypt$…" entries as for HPC_USERS (scripts/hash-password.mjs); empty = LIVE closed
-    tcliveUsers: env.HPC_TCLIVE_USERS || '',
     nas: { film: env.HPC_NAS_FILM_DIR || null, launch: env.HPC_NAS_LAUNCH_DIR || null, directorDir: env.HPC_DIRECTOR_DIR || null, exclude: (env.HPC_NAS_EXCLUDE || '').split(',').map(s => s.trim()).filter(Boolean) },
     recordsFile: env.HPC_RECORDS || path.join(ROOT, 'data', 'records.json'),
     authMode: env.HPC_AUTH || 'basic',
@@ -164,11 +159,6 @@ export function routeId(raw) {
 
 export function createApp(cfg = configFromEnv()) {
   const auth = createAuth({ mode: cfg.authMode, users: parseUsers(cfg.users), loopbackOnly: isLoopback(cfg.host), allowOpen: !!cfg.allowOpen, limits: cfg.authLimits });
-  // 감독 결정 24 (다): LIVE has its own login, separate from the site setting (HPC_AUTH stays as it is).
-  // The same audited Basic module (scrypt hashes, per-client and global failure limits), a separate user list and realm.
-  // No LIVE user list = LIVE is closed (every LIVE path answers 404): real shapes are never served without a login.
-  const tcliveUsers = parseUsers(cfg.tcliveUsers || '');
-  const tcliveAuth = tcliveUsers.size ? createAuth({ mode: 'basic', users: tcliveUsers, limits: cfg.authLimits }) : null;
   if (cfg.authMode === 'off' && cfg.requireTls) throw Error('HPC_AUTH=off 와 TLS 요구는 함께 쓸 수 없음');
   const example = () => (cfg.demo && cfg.demoState !== 'missing' ? exampleCollector(Date.now(), cfg.demoState) : null);
   // The ledger changes only with a new checkout; re-read at most every 30 s.
@@ -357,14 +347,6 @@ export function createApp(cfg = configFromEnv()) {
     const a = await auth.check(req.headers.authorization, clientOf(req));
     if (!a.ok) return deny(req, res, a);
     if (isPublic(req)) return handlePublic(req, res, p);
-    // every LIVE path — page, viewer files, state, frames — passes the LIVE login first (no route serves LIVE data outside this prefix set)
-    if (isTcliveRoute(p)) {
-      if (!tcliveAuth) return send(req, res, 404, { error: '없음' });
-      const la = await tcliveAuth.check(req.headers.authorization, clientOf(req));
-      if (!la.ok) return la.status === 429
-        ? send(req, res, 429, { error: '인증 시도가 너무 많음 — 잠시 뒤 다시' }, undefined, { 'Retry-After': String(la.retryAfter || 5) })
-        : send(req, res, 401, { error: 'LIVE 열람 권한 필요' }, undefined, { 'WWW-Authenticate': 'Basic realm="Thermal Collapse LIVE", charset="UTF-8"' });
-    }
     if (ASSETS[p]) {
       const [file, type] = ASSETS[p];
       return send(req, res, 200, await fs.readFile(path.join(ROOT, 'public', file)), type);
