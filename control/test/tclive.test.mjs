@@ -81,6 +81,9 @@ test('TL5 (결정 22 4항) "① 계산 완료" only for frames ① lists for the
   assert.deepEqual(frameView(frames, st).map(x => x.source), ['production', 'viewer', 'unconfirmed', 'test']);
   assert.ok(frameView({ ...frames, model_sha256: B }, st).every(x => x.source !== 'production'), 'other model hash');
   assert.ok(frameView(frames, null).every(x => x.source !== 'production'), 'no status file');
+  // ② QA REVIEW 1: a status file dated in the future confirms nothing
+  const fut = parseStatus(statusDoc({ updated_at: new Date(Date.now() + 3600e3).toISOString() }), Date.now());
+  assert.ok(fut.future && frameView(frames, fut).every(x => x.source !== 'production'), 'future status');
   // end to end through the API
   const md = await meshDir(t, 'production');
   const sf = path.join(await tmp(t), 'status.json');
@@ -98,7 +101,10 @@ test('TL6 QA panel: only ② QA cards of the same candidate, newest first', () =
   const c = (team, cand, verdict, at) => ({ team, candidate: cand, verdict, verdict_scope: 'technical', at, title: 't', task_id: 'TC-VIS-030' });
   const cards = [c('TC-QA', 'br1 1658263', 'FAIL', '2026-11-12T08:27:00Z'), c('TC-PROD', 'br1 1658263', 'FAIL', '2026-11-12T08:23:00Z'),
     c('TC-QA', 'pc1 3976521', 'PASS', '2026-11-12T08:00:00Z'), c('TC-QA', 'br1 9b60ced', 'REVIEW', '2026-11-12T09:00:00Z'), c('TC-QA', 'br1', null, '2026-11-12T09:30:00Z')];
-  assert.deepEqual(qaFor(cards, 'br1 9b60ced').map(x => x.verdict), ['REVIEW', 'FAIL']);
+  // ② QA REVIEW 2: name AND commit — the trial-6 FAIL (br1 1658263) is not shown for br1 9b60ced
+  assert.deepEqual(qaFor(cards, 'br1 9b60ced').map(x => x.verdict), ['REVIEW']);
+  assert.deepEqual(qaFor(cards, 'br1 1658263abcd').map(x => x.verdict), ['FAIL']);
+  assert.deepEqual(qaFor(cards, 'br1'), [], 'no commit, no match');
   assert.deepEqual(qaFor(cards, null), []);
 });
 

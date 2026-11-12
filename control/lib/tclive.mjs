@@ -65,7 +65,8 @@ export async function readFrames(meshDir) {
 export function frameView(frames, status) {
   const done = new Set(status ? status.completed : []);
   return frames.frames.map(f => {
-    const prod = f.source === 'production' && status && status.model_sha256 === frames.model_sha256 && done.has(f.frame);
+    // ② QA TC-DASH-012 REVIEW 1: a status file dated in the future is not trusted to confirm anything
+    const prod = f.source === 'production' && status && !status.future && status.model_sha256 === frames.model_sha256 && done.has(f.frame);
     const source = f.source === 'production' && !prod ? 'unconfirmed' : f.source;
     return { frame: f.frame, source, source_label: SOURCES[source] };
   });
@@ -78,11 +79,14 @@ export async function readStatus(file, now = Date.now()) {
   return { state: !status ? 'missing' : status.future ? 'future' : status.stale ? 'stale' : 'live', status };
 }
 
-// cards: the items of readCards() — only TC-QA cards with a verdict, for the status file's candidate
+// cards: the items of readCards() — only TC-QA cards with a verdict, for the status file's candidate.
+// ② QA TC-DASH-012 REVIEW 2: match the candidate name AND its commit ("br1 9b60ced"), so a verdict on another
+// trial of the same candidate name (br1 1658263) is never shown as this one's. A candidate without a commit shows none.
+const candKey = s => { const [n, c] = String(s || '').trim().split(/\s+/); return n && /^[0-9a-f]{7,40}$/.test(c || '') ? `${n} ${c.slice(0, 7)}` : null; };
 export function qaFor(cards, candidate) {
-  if (!candidate) return [];
-  const name = candidate.split(/\s+/)[0];
-  return cards.filter(c => c.team === 'TC-QA' && c.verdict && String(c.candidate || '').split(/\s+/)[0] === name)
+  const key = candKey(candidate);
+  if (!key) return [];
+  return cards.filter(c => c.team === 'TC-QA' && c.verdict && candKey(c.candidate) === key)
     .sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8)
     .map(c => ({ verdict: c.verdict, scope: c.verdict_scope || null, at: c.at, title: txt(c.title, 140), task_id: c.task_id }));
 }
