@@ -35,7 +35,8 @@ const ZONED = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?
 export function zonedTime(v) {
   const m = typeof v === 'string' ? ZONED.exec(v) : null;
   if (!m) return null;
-  const [y, mo, d, h, mi, s = '0'] = m.slice(1, 7).map(Number);
+  const [y, mo, d, h, mi] = m.slice(1, 6).map(Number);
+  const s = m[6] === undefined ? 0 : Number(m[6]);   // ② QA 964e071 REVIEW: seconds are optional (…T03:59Z)
   const oh = m[7] === 'Z' ? 0 : Number(m[8]), om = m[7] === 'Z' ? 0 : Number(m[9]);
   if (mo < 1 || mo > 12 || d < 1 || h > 23 || mi > 59 || s > 59 || oh > 14 || om > 59) return null;
   const wall = new Date(Date.UTC(y, mo - 1, d, h, mi, s));
