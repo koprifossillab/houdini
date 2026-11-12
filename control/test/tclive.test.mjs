@@ -7,7 +7,7 @@ import path from 'node:path';
 import { tmp, serve } from './helpers.mjs';
 import { hashPassword } from '../lib/auth.mjs';
 import { encodeMesh, checkMesh } from '../lib/tclive-mesh.mjs';
-import { parseStatus, frameView, qaFor, readStatusDir, tcliveState } from '../lib/tclive.mjs';
+import { parseStatus, frameView, qaFor, readStatusDir, tcliveState, zonedTime } from '../lib/tclive.mjs';
 
 const A = 'a'.repeat(64), B = 'b'.repeat(64);
 const tri = { positions: [0, 0, 0, 1, 0, 0, 0, 1, 0], elements: [0, 1, 3], indices: [0, 1, 2] };
@@ -162,4 +162,19 @@ test('TL9 (결정 33 2항) a status time without a zone, or one that does not pa
   const sd = await tmp(t);
   await fs.writeFile(path.join(sd, 's.json'), JSON.stringify(statusDoc({ updated_at: '2026-11-12T12:00:00' })));
   assert.equal((await readStatusDir(sd, A)).state, 'time_unknown');
+});
+
+test('TL10 (② QA 02e89a1 REVIEW 1·2) impossible calendar values are refused; a valid-time status file wins over a broken one', async t => {
+  for (const bad of ['2026-02-30T00:00:00Z', '2026-02-29T00:00:00Z', '2026-13-01T00:00:00Z', '2026-11-12T24:00:00Z', '2026-11-12T12:60:00Z',
+    '2026-11-12T12:00:60Z', '2026-11-12T12:00:00+99:00', '2026-11-12T12:00:00+09:60', '2026-00-10T00:00:00Z', '2026-11-00T00:00:00Z']) assert.equal(zonedTime(bad), null, bad);
+  for (const [ok, want] of [['2028-02-29T12:00:00+09:00', '2028-02-29T03:00:00.000Z'], ['2026-11-12T00:00:00-03:30', '2026-11-12T03:30:00.000Z'], ['2026-12-31T23:59:59.999Z', '2026-12-31T23:59:59.999Z']])
+    assert.equal(zonedTime(ok), want, ok);
+  const frames = { model_sha256: A, frames: [{ frame: 1, source: 'production' }] };
+  assert.equal(frameView(frames, parseStatus(statusDoc({ updated_at: '2026-02-30T00:00:00Z', completed_frames: [1] })))[0].source, 'unconfirmed');
+  const sd = await tmp(t);
+  await fs.writeFile(path.join(sd, 'a-good.json'), JSON.stringify(statusDoc({ updated_at: new Date(Date.now() - 60e3).toISOString() })));
+  await fs.writeFile(path.join(sd, 'b-nozone.json'), JSON.stringify(statusDoc({ updated_at: '2026-11-12T12:00:00' })));
+  await fs.writeFile(path.join(sd, 'c-null.json'), JSON.stringify(statusDoc({ updated_at: null })));
+  const r = await readStatusDir(sd, A);
+  assert.equal(r.state, 'live'); assert.equal(r.status.time_ok, true);
 });

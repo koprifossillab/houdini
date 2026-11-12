@@ -29,10 +29,23 @@ async function readSmallJson(file, limit = 256 * 1024) {
 
 // 감독 결정 33 2항: ① 's time must carry its zone (Z or ±hh:mm). A time without a zone, or one that does not parse,
 // is not guessed in the server's zone: it is 'time_ok: false' and confirms nothing (the screen says 미확인).
-const ZONED = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
+const ZONED = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,9})?)?(Z|[+-](\d{2}):(\d{2}))$/;
+// ② QA 02e89a1 REVIEW 1: a calendar-impossible value (02-30, 24:00, offset +99:00) must not roll over into a real
+// time — every field is range-checked and the local wall time must survive a round trip unchanged
+export function zonedTime(v) {
+  const m = typeof v === 'string' ? ZONED.exec(v) : null;
+  if (!m) return null;
+  const [y, mo, d, h, mi, s = '0'] = m.slice(1, 7).map(Number);
+  const oh = m[7] === 'Z' ? 0 : Number(m[8]), om = m[7] === 'Z' ? 0 : Number(m[9]);
+  if (mo < 1 || mo > 12 || d < 1 || h > 23 || mi > 59 || s > 59 || oh > 14 || om > 59) return null;
+  const wall = new Date(Date.UTC(y, mo - 1, d, h, mi, s));
+  if (wall.getUTCFullYear() !== y || wall.getUTCMonth() !== mo - 1 || wall.getUTCDate() !== d) return null;
+  const t = Date.parse(v);
+  return Number.isFinite(t) ? new Date(t).toISOString() : null;
+}
 export function parseStatus(d, now = Date.now()) {
   if (!d || d.schema !== 'tc-live-status/1' || !SHA.test(String(d.model_sha256 || ''))) return null;
-  const updated = typeof d.updated_at === 'string' && ZONED.test(d.updated_at) ? iso(d.updated_at) : null;
+  const updated = zonedTime(d.updated_at);
   const items = d.checks && typeof d.checks.items === 'object' && d.checks.items ? d.checks.items : {};
   return {
     task_id: TASK.test(String(d.task_id || '')) ? d.task_id : null,
@@ -95,7 +108,8 @@ export async function readStatusDir(dir, modelSha, now = Date.now()) {
   let best = null;
   for (const n of names) {
     const s = parseStatus(await readSmallJson(path.join(dir, n)), now);
-    if (s && modelSha && s.model_sha256 === modelSha && (!best || String(s.updated_at) > String(best.updated_at))) best = s;
+    // ② QA 02e89a1 REVIEW 2: a file with a valid time always wins over one without; among valid ones the newest
+    if (s && modelSha && s.model_sha256 === modelSha && (!best || (s.time_ok && !best.time_ok) || (s.time_ok === best.time_ok && String(s.updated_at) > String(best.updated_at)))) best = s;
   }
   return { state: !best ? 'missing' : !best.time_ok ? 'time_unknown' : best.future ? 'future' : best.stale ? 'stale' : 'live', status: best };
 }
